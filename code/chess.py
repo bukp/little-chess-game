@@ -51,11 +51,11 @@ def board_from_fen(fen : str) -> list:
 class Piece:
     """Object standing for pieces"""
 
-    def __init__(self, list_moves, letter : str, name : str, color : int) -> None:
-        self.list_moves = list_moves
+    def __init__(self, letter : str, type : str, color : int, can_castle : bool = False) -> None:
         self.letter = letter
-        self.name = name
+        self.type = type
         self.color = color
+        self.can_castle = can_castle
 
     def get_color(self) -> str:
         if self.color == 0: 
@@ -67,64 +67,41 @@ class Piece:
         return self.letter
     
     def __repr__(self) -> str:
-        return f"{self.name}, color : {self.get_color()} "
+        return f"{self.type}, color : {self.get_color()} "
     
     def copy(self):
-        out = Piece(self.list_moves, self.letter, self.name, self.color)
-        if hasattr(self, "can_castle"):
-            out.__setattr__("can_castle", self.can_castle)
-        return out
+        return Piece(self.letter, self.type, self.color, self.can_castle)
 
-def king(color : int, can_castle : bool = True) -> Piece:
-    """Function creating a piece object representing the King"""
-
-    def list_moves(piece_pos : tuple, board : Board, try_castle : bool = True) -> list:
-        """Function calculating all possible moves for the King.
+    def list_moves(self, piece_pos : tuple, board, try_castle : bool = True) -> list:
+        """Function calculating all possible moves for the piece.
         This function will be added as an attribut"""
-        
-        possible_moves = []        
-        for i in [(0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)]: #List all the squares on which the piece can go
-            if 0 <= i[0] + piece_pos[0] <= 7 and 0 <= i[1] + piece_pos[1] <= 7: #Check if that square is on the board
-                possible_moves.append(((piece_pos[0], piece_pos[1]),(i[0] + piece_pos[0], i[1] + piece_pos[1])))
-        
-        to_remove = []
-        for i in possible_moves:
-            if board[i[1]] != None and board[i[1]].color == board.grid[piece_pos[0]][piece_pos[1]].color: #Get rid off the moves that attack allies
-                to_remove.append(i)
-        for i in to_remove:
-            possible_moves.remove(i)
-        
-        if try_castle:
-            row = color * 7
-            #Short castle
-            if board[row, 4] != None and board[row, 4].name == "King" and board[row, 4].can_castle:
-                if board[row, 7] != None and board[row, 7].name == "Rook" and board[row, 7].can_castle:
-                    if board[row, 5] == board[row, 6] == None:
-                        if board.is_in_check(color, (row, 4)) == board.is_in_check(color, (row, 5)) == board.is_in_check(color, (row, 6)) == False :
-                            possible_moves.append(((color * 7, 4), (color * 7, 6)))
-            #Long castle
-            if board[row, 4] != None and board[row, 4].name == "King" and board[row, 4].can_castle:
-                if board[row, 0] != None and board[row, 0].name == "Rook" and board[row, 0].can_castle:
-                    if board[row, 3] == board[row, 2] == board[row, 1] == None:
-                        if board.is_in_check(color, (row, 4)) == board.is_in_check(color, (row, 3)) == board.is_in_check(color, (row, 2)) == False :
-                            possible_moves.append(((color * 7, 4), (color * 7, 2)))
-        return possible_moves 
-    
-    result = Piece(list_moves, "K", "King", color)
-    result.__setattr__("can_castle", can_castle)
-    return result
 
-def pawn(color : int) -> Piece:
-    """Function creating a piece object representing the pawn"""
-    
-    def list_moves(piece_pos : tuple, board : Board) -> list:
-        """Function calculating all possible moves for the pawn.
-        This function will be added as an attribut"""
-        
+        color = self.color
         possible_moves = []
-        color = board[piece_pos].color
+        dir = {"King" : [(0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)],
+               "Pawn" : None,
+               "Knight" : [(2, 1), (1, 2), (-2, 1), (-1, 2), (2, -1), (1, -2), (-2, -1), (-1, -2)],
+               "Bishop" : [(1, 1), (1, -1), (-1, 1), (-1, -1)],
+               "Rook" : [(0, 1), (0, -1), (1, 0), (-1, 0)],
+               "Queen" : [(0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)]}[self.type]
+        
+        if self.type in ("King", "Knight"):
+            for i in dir: #List all the squares on which the piece can go
+                if 0 <= i[0] + piece_pos[0] <= 7 and 0 <= i[1] + piece_pos[1] <= 7: #Check if that square is on the board
+                    possible_moves.append(((piece_pos[0], piece_pos[1]),(i[0] + piece_pos[0], i[1] + piece_pos[1])))
 
-        if True:
+        elif self.type in ("Bishop", "Rook", "Queen"):
+            for i in dir: #List all possible directions for the piece
+                current = piece_pos
+                #Look in each direction and add the squares until reaching the edge of the board or encountering a piece
+                while board.grid[current[0]][current[1]] == None or current == piece_pos : 
+                    current = (current[0] + i[0], current[1] + i[1])
+                    if current[0] < 0 or current[0] > 7 or current[1] < 0 or current[1] > 7: #Check if the square is on the board
+                        break
+                    else :
+                        possible_moves.append(((piece_pos[0], piece_pos[1]),current))
+        
+        elif self.type == "Pawn":
             if piece_pos[0] == 1 + color * 5: #Move 2 squares forward for the pawn's first move
                 if board[piece_pos[0]+1-2*color, piece_pos[1]] == board[piece_pos[0]+2-4*color, piece_pos[1]] == None:
                     possible_moves.append(((piece_pos[0], piece_pos[1]),(piece_pos[0]+2-4*color, piece_pos[1])))
@@ -138,148 +115,57 @@ def pawn(color : int) -> Piece:
             if piece_pos[1]-1 >= 0 and board[piece_pos[0]+1-2*color, piece_pos[1]-1] != None:
                 possible_moves.append(((piece_pos[0], piece_pos[1]),(piece_pos[0]+1-2*color, piece_pos[1]-1))) #Capture diagonally to the left
 
-            if board.last_move != None and board.last_move[1] == (piece_pos[0], piece_pos[1]+1) and board.last_move[0] == (piece_pos[0]+2-4*color, piece_pos[1]+1) and board[board.last_move[1]].name == "Pawn":
+            if board.last_move != None and board.last_move[1] == (piece_pos[0], piece_pos[1]+1) and board.last_move[0] == (piece_pos[0]+2-4*color, piece_pos[1]+1) and board[board.last_move[1]].type == "Pawn":
                 possible_moves.append(((piece_pos[0], piece_pos[1]),(piece_pos[0]+1-2*color, piece_pos[1]+1), "&"+str(piece_pos[0])+str(piece_pos[1]+1))) #En passant capture to the right
             
-            if board.last_move != None and board.last_move[1] == (piece_pos[0], piece_pos[1]-1) and board.last_move[0] == (piece_pos[0]+2-4*color, piece_pos[1]-1) and board[board.last_move[1]].name == "Pawn":
+            if board.last_move != None and board.last_move[1] == (piece_pos[0], piece_pos[1]-1) and board.last_move[0] == (piece_pos[0]+2-4*color, piece_pos[1]-1) and board[board.last_move[1]].type == "Pawn":
                 possible_moves.append(((piece_pos[0], piece_pos[1]),(piece_pos[0]+1-2*color, piece_pos[1]-1), "&"+str(piece_pos[0])+str(piece_pos[1]-1))) #En passant capture to the left
-
-        to_remove = []
-        for i in possible_moves:
+        
+        for i in possible_moves.copy():
             if board[i[1]] != None and board[i[1]].color == board.grid[piece_pos[0]][piece_pos[1]].color: #Get rid off the moves that attack allies
-                to_remove.append(i)
-        for i in to_remove:
-            possible_moves.remove(i)
+                possible_moves.remove(i)
+            
+        if self.type == "Pawn":
+            for i in possible_moves.copy(): #Add promotion for first and last row
+                if i[1][0] == 0 or i[1][0] == 7:
+                    possible_moves.remove(i)
+                    for j in ["K", "B", "R", "Q"]:
+                        possible_moves.append(i+("="+j,))
         
-        to_remove, to_add= [], []
-        for i in possible_moves: #Add promotion for first and last row
-            if i[1][0] == 0 or i[1][0] == 7:
-                to_remove.append(i)
-                for j in ["K", "B", "R", "Q"]:
-                    to_add.append(i+("="+j,))
-        for i in to_remove:
-            possible_moves.remove(i)
-        possible_moves += to_add
+        if self.type == "King" and try_castle:
+            row = color * 7
+            #Short castle
+            if board[row, 4] != None and board[row, 4].type == "King" and board[row, 4].can_castle:
+                if board[row, 7] != None and board[row, 7].type == "Rook" and board[row, 7].can_castle:
+                    if board[row, 5] == board[row, 6] == None:
+                        if board.is_in_check(color, (row, 4)) == board.is_in_check(color, (row, 5)) == board.is_in_check(color, (row, 6)) == False :
+                            possible_moves.append(((color * 7, 4), (color * 7, 6)))
+            #Long castle
+            if board[row, 4] != None and board[row, 4].type == "King" and board[row, 4].can_castle:
+                if board[row, 0] != None and board[row, 0].type == "Rook" and board[row, 0].can_castle:
+                    if board[row, 3] == board[row, 2] == board[row, 1] == None:
+                        if board.is_in_check(color, (row, 4)) == board.is_in_check(color, (row, 3)) == board.is_in_check(color, (row, 2)) == False :
+                            possible_moves.append(((color * 7, 4), (color * 7, 2)))
 
-        return possible_moves 
-    
-    result = Piece(list_moves, "P", "Pawn", color)
-    return result
+        return possible_moves
 
-def knight(color : int) -> Piece:
-    """Function creating a piece object representing the Knight"""
-    
-    def list_moves(piece_pos : tuple, board : Board) -> list:
-        """Function calculating all possible moves for the Knight.
-        This function will be added as an attribut"""
-        
-        possible_moves = []        
-        for i in [(2, 1), (1, 2), (-2, 1), (-1, 2), (2, -1), (1, -2), (-2, -1), (-1, -2)]: #List all the squares on which the piece can go
-            if 0 <= i[0] + piece_pos[0] <= 7 and 0 <= i[1] + piece_pos[1] <= 7: #Check if that square is on the board
-                possible_moves.append(((piece_pos[0], piece_pos[1]),(i[0] + piece_pos[0], i[1] + piece_pos[1])))
-        
-        to_remove = []
-        for i in possible_moves:
-            if board[i[1]] != None and board[i[1]].color == board.grid[piece_pos[0]][piece_pos[1]].color: #Get rid off the moves that attack allies
-                to_remove.append(i)
-        for i in to_remove:
-            possible_moves.remove(i)
-        
-        return possible_moves 
+def king(color : int, can_castle : bool = True) -> Piece:
+    return Piece("K", "King", color, can_castle)
 
-    result = Piece(list_moves, "N", "Knight", color)
-    return result
+def pawn(color : int, can_castle : bool = False) -> Piece:
+    return Piece("P", "Pawn", color, can_castle)
 
-def bishop(color : int) -> Piece:
-    """Function creating a piece object representing the Bishop"""
-    
-    def list_moves(piece_pos : tuple, board : Board) -> list:
-        """Function calculating all possible moves for the Bishop.
-        This function will be added as an attribut"""
+def knight(color : int, can_castle : bool = False) -> Piece:
+    return Piece("N", "Knight", color, can_castle)
 
-        possible_moves = []
-        for i in [(1, 1), (1, -1), (-1, 1), (-1, -1)]: #List all possible directions for the piece
-            current = piece_pos
-            #Look in each direction and add the squares until reaching the edge of the board or encountering a piece.
-            while board.grid[current[0]][current[1]] == None or current == piece_pos : 
-                current = (current[0] + i[0], current[1] + i[1])
-                if current[0] < 0 or current[0] > 7 or current[1] < 0 or current[1] > 7: #Check if the square is on the board
-                    break
-                else :
-                    possible_moves.append(((piece_pos[0], piece_pos[1]),current))
-        
-        to_remove = []
-        for i in possible_moves:
-            if board[i[1]] != None and board[i[1]].color == board.grid[piece_pos[0]][piece_pos[1]].color: #Get rid off the moves that attack allies
-                to_remove.append(i)
-        for i in to_remove:
-            possible_moves.remove(i)
-        
-        return possible_moves 
-    
-    result = Piece(list_moves, "B", "Bishop", color)
-    return result
+def bishop(color : int, can_castle : bool = False) -> Piece:
+    return Piece("B", "Bishop", color, can_castle)
 
 def rook(color : int, can_castle : bool = True) -> Piece:
-    """Function creating a piece object representing the Rook"""
-    
-    def list_moves(piece_pos : tuple, board : Board) -> list:
-        """Function calculating all possible moves for the Rook.
-        This function will be added as an attribut"""
+    return Piece("R", "Rook", color, can_castle)
 
-        possible_moves = []
-        for i in [(0, 1), (0, -1), (1, 0), (-1, 0)]: #List all possible directions for the piece
-            current = piece_pos
-            #Look in each direction and add the squares until reaching the edge of the board or encountering a piece
-            while board.grid[current[0]][current[1]] == None or current == piece_pos : 
-                current = (current[0] + i[0], current[1] + i[1])
-                if current[0] < 0 or current[0] > 7 or current[1] < 0 or current[1] > 7: #Check if the square is on the board
-                    break
-                else :
-                    possible_moves.append(((piece_pos[0], piece_pos[1]),current))
-        
-        to_remove = []
-        for i in possible_moves:
-            if board[i[1]] != None and board[i[1]].color == board.grid[piece_pos[0]][piece_pos[1]].color: #Get rid off the moves that attack allies
-                to_remove.append(i)
-        for i in to_remove:
-            possible_moves.remove(i)
-        
-        return possible_moves 
-
-    result = Piece(list_moves, "R", "Rook", color)
-    result.__setattr__("can_castle", can_castle)
-    return result
-
-def queen(color : int) -> Piece:
-    """Function creating a piece object representing the Queen"""
-    
-    def list_moves(piece_pos : tuple, board : Board) -> list:
-        """Function calculating all possible moves for the Queen.
-        This function will be added as an attribut"""
-
-        possible_moves = []
-        for i in [(0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)]: #List all possible directions for the piece
-            current = piece_pos
-            #Look in each direction and add the squares until reaching the edge of the board or encountering a piece
-            while board.grid[current[0]][current[1]] == None or current == piece_pos : 
-                current = (current[0] + i[0], current[1] + i[1])
-                if current[0] < 0 or current[0] > 7 or current[1] < 0 or current[1] > 7: #Check if the square is on the board 
-                    break
-                else :
-                    possible_moves.append(((piece_pos[0], piece_pos[1]),current))
-        
-        to_remove = []
-        for i in possible_moves:
-            if board[i[1]] != None and board[i[1]].color == board.grid[piece_pos[0]][piece_pos[1]].color: #Get rid off the moves that attack allies
-                to_remove.append(i)
-        for i in to_remove:
-            possible_moves.remove(i)
-        
-        return possible_moves 
-
-    result = Piece(list_moves, "Q", "Queen", color)
-    return result
+def queen(color : int, can_castle : bool = False) -> Piece:
+    return Piece("Q", "Queen", color, can_castle)
 
 class Board:
     """Object representing the board.
@@ -362,14 +248,14 @@ class Board:
     def move(self, movement : tuple):
         """Return a Board object with a piece moved. The movement is a tuple of two tuples indicating the start position and the destination position."""
 
-        new_board = Board(self.copy_grid(), (self.turn + 1)%2, movement, self.fen_list + [self.to_fen()], 0 if type(movement) == tuple and (self[movement[1]] != None or self[movement[0]].name == "Pawn") else self.last_capture + 1)
+        new_board = Board(self.copy_grid(), (self.turn + 1)%2, movement, self.fen_list + [self.to_fen()], 0 if type(movement) == tuple and (self[movement[1]] != None or self[movement[0]].type == "Pawn") else self.last_capture + 1)
 
-        if (movement == ((0, 4), (0, 6)) or movement == ((7, 4), (7, 6))) and self[movement[0]].name == "King" and self[movement[0]].can_castle: #Short castle 
+        if (movement == ((0, 4), (0, 6)) or movement == ((7, 4), (7, 6))) and self[movement[0]].type == "King" and self[movement[0]].can_castle: #Short castle 
             new_board[self.turn * 7,6], new_board[self.turn * 7,4] = new_board[self.turn * 7,4], None
             new_board[self.turn * 7,5], new_board[self.turn * 7,7] = new_board[self.turn * 7,7], None
             new_board[self.turn * 7,6].can_castle, new_board[self.turn * 7,5].can_castle = False, False
 
-        elif (movement == ((0, 4), (0, 2)) or movement == ((7, 4), (7, 2))) and self[movement[0]].name == "King" and self[movement[0]].can_castle: #Long castle
+        elif (movement == ((0, 4), (0, 2)) or movement == ((7, 4), (7, 2))) and self[movement[0]].type == "King" and self[movement[0]].can_castle: #Long castle
             new_board[self.turn * 7,2], new_board[self.turn * 7,4] = new_board[self.turn * 7,4], None
             new_board[self.turn * 7,3], new_board[self.turn * 7,0] = new_board[self.turn * 7,0], None
             new_board[self.turn * 7,2].can_castle, new_board[self.turn * 7,3].can_castle = False, False
@@ -378,8 +264,7 @@ class Board:
             start_pos, end_pos, arg = movement[0], movement[1], movement[2] if len(movement)>2 else None
 
             new_board[end_pos], new_board[start_pos] = new_board[start_pos], None
-            if hasattr(new_board[end_pos], "can_castle"): #If the piece that moves can castle, now it can't
-                new_board[end_pos].can_castle = False
+            new_board[end_pos].can_castle = False
 
             if arg != None:
                 if "=" in arg: #Detect promotion
@@ -401,7 +286,7 @@ class Board:
         if pos == "king_pos":
             for row in range(8):
                 for col in range(8):
-                    if self[row,col] != None and self[row,col].name == "King" and self[row,col].color == color: #Search the king
+                    if self[row,col] != None and self[row,col].type == "King" and self[row,col].color == color: #Search the king
                         pos = (row, col)
             if pos == "king_pos": #Case where the king would have disappeared from the chessboard (never happens in theory)
                 raise Exception("The king is not foundable : "+ self.last_move)
@@ -457,7 +342,7 @@ class Board:
         for row in range(8):
             for col in range(8):
                 if self[row,col] != None and self[row,col].color == color:
-                    for move in self[row,col].list_moves((row, col), self) if self[row,col].name != "King" else self[row,col].list_moves((row, col), self, try_castle):
+                    for move in self[row,col].list_moves((row, col), self, try_castle):
                         if check_verif:
                             if not self.move(move).is_in_check(self.turn):
                                 out.append(move)
@@ -480,12 +365,12 @@ class Board:
         if type(movement) != tuple:
             return movement
         out = ""
-        if self[movement[0]].name != "Pawn" :
+        if self[movement[0]].type != "Pawn" :
             out += self[movement[0]].letter
         
         other_starting_points = []
         for i in self.get_all_possible_moves():
-            if i[1] == movement[1] and self[i[0]].name == self[movement[0]].name and i[0] != movement[0]:
+            if i[1] == movement[1] and self[i[0]].type == self[movement[0]].type and i[0] != movement[0]:
                 other_starting_points.append(i[0])
         if len(other_starting_points) > 0 :
             if [i[1] for i in other_starting_points].count(movement[0][1]) == 0:

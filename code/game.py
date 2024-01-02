@@ -120,6 +120,7 @@ def start_a_game(settings = ("player", "bot"), bsd = "white", bsz = 480, board =
             draw_popup(board.get_state())
             pygame.display.flip()
             while running:
+                clock.tick(60)
                 for event in pygame.event.get(): #Wait for user to quit the window
                     if event.type == pygame.QUIT or event.type == pygame.MOUSEBUTTONDOWN:
                         running = False
