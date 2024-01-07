@@ -14,40 +14,6 @@ def name_to_int(key : str) -> tuple:
     else : #not supposed to happen
         raise Exception("Invalid input", key)
 
-def grid_from_fen(fen : str) -> list:
-    """Creates a grid containing parts based on a string in FEN format"""
-
-    out = [[None for _ in range(8)]for _ in range(8)]
-    current = (7, 0)
-    for i in fen:
-        if i == "/":
-            current = (current[0]-1, 0)
-        elif i.isdigit():
-            current = (current[0], current[1]+int(i))
-        elif i.upper() == "P":
-            out[current[0]][current[1]] = pawn(1 if i.islower() else 0)
-            current = (current[0], current[1]+1)
-        elif i.upper() == "N":
-            out[current[0]][current[1]] = knight(1 if i.islower() else 0)
-            current = (current[0], current[1]+1)
-        elif i.upper() == "B":
-            out[current[0]][current[1]] = bishop(1 if i.islower() else 0)
-            current = (current[0], current[1]+1)
-        elif i.upper() == "R":
-            out[current[0]][current[1]] = rook(1 if i.islower() else 0)
-            current = (current[0], current[1]+1)
-        elif i.upper() == "Q":
-            out[current[0]][current[1]] = queen(1 if i.islower() else 0)
-            current = (current[0], current[1]+1)
-        elif i.upper() == "K":
-            out[current[0]][current[1]] = king(1 if i.islower() else 0)
-            current = (current[0], current[1]+1)
-    return out
-
-def board_from_fen(fen : str) -> list:
-    """Similar to grid_from_fen but returns a Board object"""
-    return Board(grid_from_fen(fen))
-
 class Piece:
     """Object standing for pieces"""
 
@@ -173,15 +139,23 @@ class Board:
 
     def __init__(self, grid : list = "start", turn : int = 0, last_move : str = None, fen_list = [], last_capture = 0) -> None:
         self.turn = turn
-        if grid == "start":
-            self.grid = grid_from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR") #Starting pos in FEN format
-        elif grid == "empty":
-            self.grid = [[None for _ in range(8)]for _ in range(8)] #Empty grid
-        else :
-            if type(grid) == str:
-                self.grid = grid_from_fen(grid) #If the argument 'grid' is a string, convert the string to a chessboard using grid_from_fen
-            else:
-                self.grid = grid
+        self.grid = [[None for _ in range(8)]for _ in range(8)] #Empty grid
+        if type(grid) == str:
+            if grid == "start":
+                grid = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR" #Starting pos in FEN format
+            self.grid = [[None for _ in range(8)]for _ in range(8)]
+            current = (7, 0)
+            constructors = {"P" : pawn,"N" : knight,"B" : bishop,"R" : rook,"Q" : queen,"K" : king}
+            for i in grid.split()[0]:
+                if i == "/":
+                    current = (current[0]-1, 0)
+                elif i.isdigit():
+                    current = (current[0], current[1]+int(i))
+                elif i.upper() in constructors:
+                    self.grid[current[0]][current[1]] = constructors[i.upper()](1 if i.islower() else 0)
+                    current = (current[0], current[1]+1)
+        else:
+            self.grid = grid
         self.last_move = last_move
         self.fen_list = fen_list
         self.last_capture = last_capture
