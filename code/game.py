@@ -1,4 +1,6 @@
 import tkinter as tk
+from tkinter import ttk
+import os
 import pygame
 import random
 import chess
@@ -61,7 +63,7 @@ def promotion_choice(color, mouse_pos):
         window_surface.blit(sprites[i.lower() if color == 1 else i], d[i])
 
 def draw_popup(text):
-    """Draw en game popup"""
+    """Draw end game popup"""
     grey_surface = pygame.Surface((board_size, board_size))
     grey_surface.fill((50, 50, 50))
     grey_surface.set_alpha(125)
@@ -69,19 +71,26 @@ def draw_popup(text):
     cell_size = board_size//8
     pygame.draw.rect(window_surface, (255, 255, 255), pygame.Rect(cell_size*2, cell_size*3, cell_size*4, cell_size*2))
     pygame.draw.rect(window_surface, (0, 0, 0), pygame.Rect(cell_size*2, cell_size*3, cell_size*4, cell_size*2), max(1, int(3*board_size/480)))
-    text1 = pygame.font.SysFont("FreeSans Gras", 35).render(text[0], True, (0, 0, 0), (255, 255, 255))
-    if text1.get_width() > 220:
-        text1 = pygame.font.SysFont("FreeSans Gras", 25).render(text[0], True, (0, 0, 0), (255, 255, 255))
-    text2 = pygame.font.SysFont("FreeSans Gras", 50).render(text[1], True, (0, 0, 0), (255, 255, 255))
-    text1 = pygame.transform.scale(text1, (int(text1.get_width()*board_size/480), int(text1.get_height()*board_size/480)))
-    text2 = pygame.transform.scale(text2, (int(text2.get_width()*board_size/480), int(text2.get_height()*board_size/480)))
-    text = pygame.Surface((max(text1.get_width(), text2.get_width()), text1.get_height() + text2.get_height()))
+
+    text1 = pygame.font.SysFont("FreeSans Gras", 300).render(text[0], True, (0, 0, 0), (255, 255, 255))
+    coef = int(cell_size*8/10)/max(text1.get_height(), text1.get_width()//4)
+    surf = pygame.Surface(text1.get_size())
+    surf.blit(text1, (0, 0))
+    text1 = pygame.transform.smoothscale(surf, (int(surf.get_width()*coef), int(surf.get_height()*coef)))
+
+    text2 = pygame.font.SysFont("FreeSans Gras", 300).render(text[1], True, (0, 0, 0), (255, 255, 255))
+    coef = int(cell_size*8/10)/max(text2.get_height(), text2.get_width()//4)
+    surf = pygame.Surface(text2.get_size())
+    surf.blit(text2, (0, 0))
+    text2 = pygame.transform.smoothscale(surf, (int(surf.get_width()*coef), int(surf.get_height()*coef)))
+
+    text = pygame.Surface((int(cell_size*4*9/10), int(cell_size*2*9/10)))
     text.fill((255, 255, 255))
-    text.blit(text1, (text.get_width()/2 - text1.get_width()/2,0))
-    text.blit(text2, (text.get_width()/2 - text2.get_width()/2,text1.get_height()))
+    text.blit(text1, (text.get_width()/2 - text1.get_width()/2,text.get_height()/4 - text1.get_height()/2))
+    text.blit(text2, (text.get_width()/2 - text2.get_width()/2,text.get_height()*3/4 - text2.get_height()/2))
     window_surface.blit(text, (board_size//2-text.get_width()/2, board_size//2-text.get_height()/2))
 
-def start_a_game(settings = ("player", "bot"), bsd = "white", bsz = 480, board = None):
+def start_a_game(settings = ("player", "bot"), bsd = "white", bsz = 480, board = "start", pieces_style = "cburnett"):
     global board_side
     global board_size
     board_side = bsd
@@ -89,12 +98,15 @@ def start_a_game(settings = ("player", "bot"), bsd = "white", bsz = 480, board =
 
     #Load piece's sprites
     global sprites
-    sprites = {i : pygame.transform.scale(pygame.image.load("asset/"+("b" if i.islower() else "w") +i.upper()+".png"), (board_size//8, board_size//8)) for i in ["K", "P", "N", "B", "R", "Q", "k", "p", "n", "b", "r", "q"]}
+    sprites = {i : None for i in ["K", "P", "N", "B", "R", "Q", "k", "p", "n", "b", "r", "q"]}
+    for i in sprites:
+        sprites[i] = pygame.image.load(f"asset/{pieces_style}/{('b' if i.islower() else 'w')+i.upper()}.png")
+        sprites[i] = pygame.transform.smoothscale(sprites[i], (int(sprites[i].get_width() * (board_size//8)/max(sprites[i].get_size())), int(sprites[i].get_height() * (board_size//8)/max(sprites[i].get_size()))))
 
     #Initialise the window
     pygame.init()
-    pygame.display.set_caption("Chess game")
-    pygame.display.set_icon(pygame.image.load("asset/wN.png"))
+    pygame.display.set_caption("little-chess-game")
+    pygame.display.set_icon(sprites["N"])
     global window_surface
     window_surface = pygame.display.set_mode((board_size, board_size))
 
@@ -104,11 +116,7 @@ def start_a_game(settings = ("player", "bot"), bsd = "white", bsz = 480, board =
     held_piece = None
     held_piece_moves = []
 
-    #board initialisation
-    if board == None :
-        board = chess.Board()
-    else :
-        board = chess.board_from_fen(board)
+    board = chess.Board(board)
 
     while running :
         clock.tick(60)
@@ -215,30 +223,46 @@ if __name__ == "__main__":
 
     #Creation of the tkinter setting window
     
-    size = (500, 110)
+    size = (600, 150)
     window = tk.Tk()
     window.title("Game settings")
     window.geometry(f"{size[0]}x{size[1]}")
     window.resizable(False, False)
-    window.iconphoto(True, tk.PhotoImage(file = "asset\\wN.png"))
+    window.iconphoto(True, tk.PhotoImage(file = "asset/cburnett/wN.png"))
+    window.columnconfigure(0, weight=1)
+    window.rowconfigure(0, weight = 1)
+    window.rowconfigure(1, weight = 1)
+    window.rowconfigure(2, weight = 1)
 
-    paned_window = tk.PanedWindow(window, orient=tk.HORIZONTAL)
-    paned_window.pack(fill = tk.BOTH, pady=2, padx=2)
+    row1 = tk.Frame(window)
+    row1.grid(row=0, column=0, sticky="ew")
+    row1.columnconfigure(0, weight=1)
+    row1.columnconfigure(1, weight=1)
+    row1.columnconfigure(2, weight=1)
+    row1.columnconfigure(3, weight=5)
 
-    frame1 = tk.LabelFrame(paned_window, text = "White player")
-    paned_window.add(frame1)
+    frame1 = tk.LabelFrame(row1, text = "White player")
+    frame1.grid(row=0, column=0, sticky="nsew")
 
-    frame2 = tk.LabelFrame(paned_window, text = "Black player")
-    paned_window.add(frame2)
+    frame2 = tk.LabelFrame(row1, text = "Black player")
+    frame2.grid(row=0, column=1, sticky="nsew")
 
-    frame3 = tk.LabelFrame(paned_window, text = "View")
-    paned_window.add(frame3)
+    frame3 = tk.LabelFrame(row1, text = "View")
+    frame3.grid(row=0, column=2, sticky="nsew")
 
-    frame4 = tk.Frame(paned_window, padx = 5, pady = 5)
-    paned_window.add(frame4)
+    frame4 = tk.Frame(row1)
+    frame4.grid(row=0, column=3, sticky="nsew")
 
-    frame5 = tk.PanedWindow(window, orient = tk.HORIZONTAL)
-    frame5.pack(fill = tk.BOTH, pady=2, padx=2)
+    frame5 = tk.Frame(window)
+    frame5.grid(row=1, column=0, sticky="ew")
+    frame5.columnconfigure(1, weight=1)
+
+    frame6 = tk.LabelFrame(window, text = "Style")
+    frame6.grid(row=2, column=0, sticky="nsew")
+    frame6.columnconfigure(0, weight=1)
+    frame6.columnconfigure(1, weight=2)
+    frame6.columnconfigure(2, weight=1)
+    frame6.columnconfigure(3, weight=2)
 
     liste1 = tk.Listbox(frame1, height = 3, selectmode = tk.SINGLE, exportselection = 0, activestyle = "none")
     liste1.pack()
@@ -268,16 +292,28 @@ if __name__ == "__main__":
     spinbox.pack(expand = tk.Y)
 
     def create():
-        arg = ((liste1.get(liste1.curselection()[0]),liste2.get(liste2.curselection()[0])), liste3.get(liste3.curselection()[0]), int(size_set.get()), fen_entry.get())
+        arg = ((liste1.get(liste1.curselection()[0]),liste2.get(liste2.curselection()[0])), liste3.get(liste3.curselection()[0]), int(size_set.get()), fen_entry.get(), pieces_style_list.get())
         window.destroy()
         start_a_game(*arg)
 
-    tk.Button(frame4, text="Create", command = create, width= 30).pack(expand = tk.Y)
+    tk.Button(frame4, text="Create", command = create).pack(fill=tk.X, expand=True)
 
-    frame5.add(tk.Label(text = "Fen : "))
+    tk.Label(frame5, text = "Fen : ").grid(row=0, column=0, sticky="w")
 
-    fen_entry = tk.Entry(width = 60, )
-    frame5.add(fen_entry)
+    fen_entry = tk.Entry(frame5)
+    fen_entry.grid(row=0, column=1, sticky="ew")
     fen_entry.insert(0, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR")
     
+    tk.Label(frame6, text = "Pieces : ").grid(row=0, column=0, sticky="w")
+
+    pieces_style_list = ttk.Combobox(frame6, values=os.listdir("asset"), state="readonly")
+    pieces_style_list.grid(row=0, column=1, sticky="ew")
+    pieces_style_list.current(os.listdir("asset").index('cburnett'))
+
+    tk.Label(frame6, text = "Board : ").grid(row=0, column=2, sticky="w")
+
+    board_style_list = ttk.Combobox(frame6, state="readonly", values=["None"])
+    board_style_list.grid(row=0, column=3, sticky="ew")
+    board_style_list.current(0)
+
     window.mainloop()
