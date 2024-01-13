@@ -17,4 +17,4 @@ To start a game :
 
 I personnaly wrote the whole code of this project.
 Sprites are taken from the open source chess site lichess.org.
-The non-native libraries used in this project are pygame (GUI) and cairo (converter).
+The non-native libraries used in this project are pygame (GUI), cairo and Pillow (image converter).

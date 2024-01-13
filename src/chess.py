@@ -262,8 +262,6 @@ class Board:
                 for col in range(8):
                     if self[row,col] != None and self[row,col].type == "King" and self[row,col].color == color: #Search the king
                         pos = (row, col)
-            if pos == "king_pos": #Case where the king would have disappeared from the chessboard (never happens in theory)
-                raise Exception("The king is not foundable : "+ self.last_move)
         
         # Check all possible moves and see if any move ends at the King's position
         for i in self.get_all_possible_moves(False, False, (color+1)%2):
