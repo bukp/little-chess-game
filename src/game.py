@@ -1,28 +1,109 @@
-import threading
-import settings
-import pygame
 import random
+import threading
+import time
+import socket
+import pygame
+import settings
 import chess
+import os
 
-DEFAULT_SETTINGS = {"settings": ["player", "bot"], "bsd": "white", "bsz": 480, "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR", "pieces_style": "cburnett", "board_style": "brown"}
+DEFAULT_SETTINGS = {"settings": ["player", "bot"], "options": [{"host": False, "address": "127.0.0.1", "port": "54321"}, {"host": False, "address": "127.0.0.1", "port": "54321"}], "bsd": "white", "bsz": 480, "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR", "pieces_style": "cburnett", "board_style": "brown"}
 
 class DisplayBoard():
 
-    def __init__(self,parent, board, board_side, board_size, settings, sprites, pos = (0, 0)):
+    def __init__(self,parent, settings = ("player", "bot"), options = (), bsd = "white", bsz = 480, board = "start", pieces_style = "cburnett", board_style = "brown", pos = (0, 0)):
+        
         self.parent = parent
-        self.board_side = board_side
-        self.board_size = board_size
+        self.board_side = bsd
+        self.board_size = (bsz//8)*8
         self.settings = settings
-        self.sprites = sprites
         self.pos = pos
 
+        #Load piece's sprites
+        self.sprites = {i : None for i in ["K", "P", "N", "B", "R", "Q", "k", "p", "n", "b", "r", "q"]}
+        for i in self.sprites:
+            self.sprites[i] = pygame.image.load(f"asset/pieces/{pieces_style}/{('b' if i.islower() else 'w')+i.upper()}.png")
+            self.sprites[i] = pygame.transform.smoothscale(self.sprites[i], (int(self.sprites[i].get_width() * (bsz//8)/max(self.sprites[i].get_size())), int(self.sprites[i].get_height() * (bsz//8)/max(self.sprites[i].get_size()))))
+
+        #Load Board
+        self.sprites["Board"] = pygame.image.load(f"asset/boards/{board_style}.png")
+        self.sprites["Board"] = pygame.transform.scale(self.sprites["Board"], (bsz, bsz))
+
+        self.connections = [None, None]
+        for i in range(2):
+            if settings[i] == "remote player":
+                self.connections[i] = self.Connection(options[i]["host"], options[i]["address"], int(options[i]["port"]))
+        
         self.mouse = (0, 0)
-        self.board = board
+        self.board = chess.Board(board)
         self.move_to_play = None
         self.page = "current"
         self.sub_state = None
         self.temp_var = {}
-    
+        self.thread = None
+
+    class Connection:
+
+        def __init__(self, host, address, port):
+            
+            self.alive = True
+            self.host, self.address, self.port  = host, address, port
+            self.last_message = ""
+            self.connected = False
+            threading.Thread(target = self.connect, daemon=True).start()
+        
+        def connect(self):
+            if self.host:
+                self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.server.setblocking(0)
+                self.server.bind(("0.0.0.0", self.port))
+                self.server.listen()
+                address = None
+                while self.address != address and self.alive:
+                    try :
+                        self.conn, (address, _) = self.server.accept()
+                        if address != self.address:
+                            self.conn.close()
+                            self.conn = None
+                        else :
+                            print(f"Connected with {address}")
+                            break
+                    except BlockingIOError:
+                        time.sleep(0.1)
+                    
+                self.server.close()
+            else :
+                self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                redo = True
+                while redo and self.alive:
+                    try :
+                        redo = False
+                        self.conn.connect((self.address, self.port))
+                        print(f"Connected with {self.address}")
+                    except ConnectionRefusedError:
+                        redo = True
+                        time.sleep(0.1)
+            
+            if self.alive:
+                self.conn.setblocking(1)
+                self.connected = True
+                threading.Thread(target=self.listening, daemon=True).start()
+
+        def listening(self):
+            while self.alive:
+                try :
+                    self.last_message = self.conn.recv(1024).decode("utf-8")
+                    #print(self.last_message)
+                except :
+                    print("Connection Lost")
+                    self.connected = False
+                    break
+            self.connect()
+
+        def send(self, message):
+            if self.connected:
+                self.conn.send(message.encode("utf-8"))
+
     def pos_to_coord(self, tup):
         """Convert pixels (mouse for example) coordinates into row/column coordinates"""
         if self.board_side == "white":
@@ -77,8 +158,8 @@ class DisplayBoard():
     def promotion_choice(self, surface, mouse_pos):
         """Draw promotion window"""
         pygame.draw.rect(surface, (255, 255, 255), pygame.Rect(0, 0, self.board_size//4, self.board_size//4))
-        mouse_pos = (7-int(mouse_pos[1]/(self.board_size//8)), int(mouse_pos[0]/(self.board_size//8)))
-        if mouse_pos[1] <= 1 and mouse_pos[0] >= 6 :
+        mouse_pos = (7-mouse_pos[1]//(self.board_size//8), mouse_pos[0]//(self.board_size//8))
+        if 0 <= mouse_pos[1] <= 1 and 7 >= mouse_pos[0] >= 6 :
             pygame.draw.rect(surface, (175, 175, 175), pygame.Rect((self.board_size//8)*mouse_pos[1], ((self.board_size//8)*7)-(self.board_size//8)*mouse_pos[0], (self.board_size//8), (self.board_size//8)))
         d = {"Q" : (0, 0), "R" : ((self.board_size//8), 0), "B" : (0, (self.board_size//8)), "N" : ((self.board_size//8), (self.board_size//8))}
         for i in d:
@@ -115,7 +196,7 @@ class DisplayBoard():
         return surface
 
     def handle_events(self, events):
-
+        
         for event in events:
 
             if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION): #Get mouse pos
@@ -124,7 +205,7 @@ class DisplayBoard():
                     self.mouse = (pointer[0]-self.pos[0], pointer[1]-self.pos[1])
                 else :
                     event = pygame.event.Event(pygame.MOUSEBUTTONUP, button = 1)
-                    self.mouse = (-10, -10)
+                    self.mouse = (self.pos[0]-10, self.pos[1]-10)
             
             if self.page == "current":
                 if self.board.get_state() == "Running" :
@@ -171,14 +252,41 @@ class DisplayBoard():
                                 self.move_to_play = "Cancel" #Cancel promotion
 
                             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                                mouse_coord = (7-int(self.mouse[1]/(self.board_size//8)), int(self.mouse[0]/(self.board_size//8)))
-                                if mouse_coord[1] <= 1 and mouse_coord[0] >= 6:
-                                    self.move_to_play = self.temp_var["choices"][mouse_coord[0]*2-mouse_coord[1]-11] #Transform click location in move index
+                                mouse_pos = (7-self.mouse[1]//(self.board_size//8), self.mouse[0]//(self.board_size//8))
+                                if 0 <= mouse_pos[1] <= 1 and 7 >= mouse_pos[0] >= 6 :
+                                    self.move_to_play = self.temp_var["choices"][mouse_pos[0]*2-mouse_pos[1]-11] #Transform click location in move index
                                 else :
                                     self.move_to_play = "Cancel" #Cancel promotion
-
+                    
+                    elif self.settings[self.board.turn] == "remote player":
+                        if self.thread == None and self.connections[self.board.turn].connected:
+                            def waiting_other_player():
+                                if self.board.last_move == None:
+                                    message = "0;;"
+                                else:
+                                    message = f"{len(self.board.fen_list)};{str(self.board.last_move[0][0])+str(self.board.last_move[0][1])+str(self.board.last_move[1][0])+str(self.board.last_move[1][1])+(str(self.board.last_move[2]) if len(self.board.last_move)>2 else '')};{self.board.to_fen()}"
+                                last = 0
+                                while True:
+                                    if self.connections[self.board.turn] == None:
+                                        return 
+                                    if time.time() - last > 5:
+                                        self.connections[self.board.turn].send(message)
+                                        last = time.time()
+                                    last_message = self.connections[self.board.turn].last_message.split(";")
+                                    if last_message[0] != "" and int(last_message[0]) == len(self.board.fen_list)+1:
+                                        self.move_to_play = (int(last_message[1][0]), int(last_message[1][1])),(int(last_message[1][2]), int(last_message[1][3])), last_message[1][4:]
+                                        break
+                                    time.sleep(0.1)
+                            
+                            self.thread = threading.Thread(target = waiting_other_player, daemon = True)
+                            self.thread.start()
+                    
                     elif self.settings[self.board.turn] == "bot": #Check if it's the bot turn
-                        self.move_to_play = self.board.choose_best_move(1) #Play the move
+                        if self.thread == None:
+                            def func():
+                                self.move_to_play = self.board.choose_best_move(1) #Play the move
+                            self.thread = threading.Thread(target = func)
+                            self.thread.start()
 
                     elif self.settings[self.board.turn] == "random": #Checks if the round is to be played randomly
                         self.move_to_play = random.choice(self.board.get_all_possible_moves()) #Play the move
@@ -188,11 +296,13 @@ class DisplayBoard():
                 self.sub_state = None
                 self.temp_var = {}
                 self.move_to_play = None
+                self.thread = None
             else :
                 self.board = self.board.move(self.move_to_play)
                 self.sub_state = None
                 self.temp_var = {}
                 self.move_to_play = None
+                self.thread = None
         
         surface = self.draw_board(self.mouse)
         if self.board.get_state() != "Running":
@@ -200,6 +310,21 @@ class DisplayBoard():
         elif self.sub_state == "promotion":
             surface = self.promotion_choice(surface, self.mouse)
         return surface
+
+    def unconnect(self):
+        for i in range(len(self.connections)):
+            if self.connections[i] != None:
+                if hasattr(self.connections[i], "server"):
+                    if self.connections[i].server != None:
+                        self.connections[i].server.close()
+                
+                if hasattr(self.connections[i], "conn"):
+                    if self.connections[i].conn != None:
+                        self.connections[i].conn.close()
+
+                self.connections[i].alive = False
+
+                self.connections[i] = None
 
 class Button():
 
@@ -254,31 +379,15 @@ class Button():
             surface.blit(surf, (0, 0))
         if self.state == "DOWN":
             surf = pygame.Surface(self.size, pygame.SRCALPHA)
-            surface = pygame.transform.smoothscale(surface, (int(surface.get_width()*9/10), int(surface.get_height()*9/10)))
+            surface = pygame.transform.smoothscale(surface, (int(surface.get_width()*92/100), int(surface.get_height()*92/100)))
             surf.blit(surface, (int(self.size[0]/2-surface.get_width()/2),int(self.size[1]/2-surface.get_height()/2)))
             surface = surf
         return surface
 
-def create_game(parent, settings = ("player", "bot"), bsd = "white", bsz = 480, board = "start", pieces_style = "cburnett", board_style = "brown", pos = (0, 0)):
-    board_side = bsd
-    board_size = (bsz//8)*8
-
-    #Load piece's sprites
-    sprites = {i : None for i in ["K", "P", "N", "B", "R", "Q", "k", "p", "n", "b", "r", "q"]}
-    for i in sprites:
-        sprites[i] = pygame.image.load(f"asset/pieces/{pieces_style}/{('b' if i.islower() else 'w')+i.upper()}.png")
-        sprites[i] = pygame.transform.smoothscale(sprites[i], (int(sprites[i].get_width() * (board_size//8)/max(sprites[i].get_size())), int(sprites[i].get_height() * (board_size//8)/max(sprites[i].get_size()))))
-
-    #Load Board
-    sprites["Board"] = pygame.image.load(f"asset/boards/{board_style}.png")
-    sprites["Board"] = pygame.transform.scale(sprites["Board"], (board_size, board_size))
-
-    board = DisplayBoard(parent, chess.Board(board), board_side, board_size, settings, sprites, pos)
-    return board
-
 class MainWindow:
 
     def __init__(self, board_settings = None):
+
         if board_settings == None:
             self.board_settings = settings.user_settings()
         else :
@@ -286,7 +395,9 @@ class MainWindow:
         self.board_settings["parent"] = self
         self.board_settings["pos"] = (4, (self.board_settings["bsz"]//16))
 
-        self.board = create_game(**self.board_settings)
+        self.board = DisplayBoard(**self.board_settings)
+
+        self.components = []
 
         #Initialise the window
         pygame.init()
@@ -294,37 +405,41 @@ class MainWindow:
         pygame.display.set_icon(pygame.image.load("asset/pieces/cburnett/bN.png"))
         self.window_surface = pygame.display.set_mode((self.board.board_size+8, self.board.board_size+self.board.board_size//16+4))
         
-        self.components = []
-
-        def restart(window):
-            window.board = create_game(**window.board_settings)
-
-        self.components.append(Button(self, "Restart", (self.board.pos[0], 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8),restart))
-
         def open_settings(window):
             settings.settings_window(window)
 
-        self.components.append(Button(self, "Settings", (self.board.pos[0]+self.board.board_size//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8),open_settings))
+        self.components.append(Button(self, "Settings", (self.board.pos[0]+self.board.board_size*3//4+2, 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8), open_settings))
+        
+        def restart(window):
+
+            #Fermeture des sockets pour éviter des bugs comme la connection avec une socket inutilisée
+            window.board.unconnect()
+            del window.board
+            window.board = DisplayBoard(**window.board_settings)
+
+        self.components.append(Button(self, "Restart", (self.board.pos[0], 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8),restart))
 
         def func1(window):
-            pass
+            print(threading.active_count(), threading.enumerate())
 
-        self.components.append(Button(self, "", (self.board.pos[0]+self.board.board_size*2//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), func1))
-        
+        self.components.append(Button(self, "", (self.board.pos[0]+self.board.board_size//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), func1))
+
         def func2(window):
             pass
 
-        self.components.append(Button(self, "", (self.board.pos[0]+self.board.board_size*3//4+2, 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8), func2))
+        self.components.append(Button(self, "", (self.board.pos[0]+self.board.board_size*2//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), func2))
+        
 
     def run(self, fps = 60):
 
-        running = True
+        self.running = True
         clock = pygame.time.Clock()
+        self.skip = False
 
         def render(element):
             self.window_surface.blit(element.handle_events(new_events), element.pos)
 
-        while running :
+        while self.running :
             pygame.display.flip()
             clock.tick(fps)
             self.window_surface.fill((10, 10, 10))
@@ -333,12 +448,15 @@ class MainWindow:
                 new_events.append(pygame.event.Event(0))
             for event in new_events:
                 if event.type == pygame.QUIT:
-                    running = False
-            
-            if running:
-                render(self.board)
-                for i in self.components:
-                    render(i)
+                    self.running = False
+
+            if not self.running:
+                break
+
+            render(self.board)
+            for i in self.components:
+                render(i)
 
 if __name__ == "__main__":
+    os.chdir(os.path.dirname(os.path.abspath(__file__))+"\\..")
     MainWindow().run()
