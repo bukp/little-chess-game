@@ -1,7 +1,6 @@
-améliorer l'ia
 ajouter les fen complets et les pgn
-ajouter les vérifications fen
+ajouter les vérifications fen (pour le début de partie et pour le réseau)
 ajouter les pages
-ajouter les pré-moves
-ajouter le jeux en réseau
-optimiser le calcul du statut de la partie
+
+(ajouter les pré-moves)
+(améliorer l'ia)

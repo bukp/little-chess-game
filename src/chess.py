@@ -220,10 +220,11 @@ class Board:
         return out[:-1]
 
     def move(self, movement : tuple):
+
         """Return a Board object with a piece moved. The movement is a tuple of two tuples indicating the start position and the destination position."""
 
         new_board = Board(self.copy_grid(), (self.turn + 1)%2, movement, self.fen_list + [self.to_fen()], 0 if type(movement) == tuple and (self[movement[1]] != None or self[movement[0]].type == "Pawn") else self.last_capture + 1)
-
+        
         if (movement == ((0, 4), (0, 6)) or movement == ((7, 4), (7, 6))) and self[movement[0]].type == "King" and self[movement[0]].can_castle: #Short castle 
             new_board[self.turn * 7,6], new_board[self.turn * 7,4] = new_board[self.turn * 7,4], None
             new_board[self.turn * 7,5], new_board[self.turn * 7,7] = new_board[self.turn * 7,7], None

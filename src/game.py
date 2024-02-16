@@ -7,7 +7,7 @@ import settings
 import chess
 import os
 
-DEFAULT_SETTINGS = {"settings": ["player", "bot"], "options": [{"host": False, "address": "127.0.0.1", "port": "54321"}, {"host": False, "address": "127.0.0.1", "port": "54321"}], "bsd": "white", "bsz": 480, "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR", "pieces_style": "cburnett", "board_style": "brown"}
+DEFAULT_SETTINGS = {"settings": ["player", "bot"], "options": [{"address": "127.0.0.1", "port": "54321"}, {"address": "127.0.0.1", "port": "54321"}], "bsd": "white", "bsz": 480, "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR", "pieces_style": "cburnett", "board_style": "brown"}
 
 class DisplayBoard():
 
@@ -31,78 +31,24 @@ class DisplayBoard():
 
         self.connections = [None, None]
         for i in range(2):
-            if settings[i] == "remote player":
-                self.connections[i] = self.Connection(options[i]["host"], options[i]["address"], int(options[i]["port"]))
+            if self.settings[i] == "remote player":
+                self.connections[i] = Connection(i == 0, options[i]["address"], int(options[i]["port"]))
+        
+        self.handling_methods = [{
+            "player" : self.handle_player,
+            "remote player" : self.handle_remote_player,
+            "bot" : self.handle_bot,
+            "random" : self.handle_random,
+        }[self.settings[i]] for i in range(2)]
         
         self.mouse = (0, 0)
         self.board = chess.Board(board)
         self.move_to_play = None
+        self.board_state = self.board.get_state()
         self.page = "current"
         self.sub_state = None
         self.temp_var = {}
         self.thread = None
-
-    class Connection:
-
-        def __init__(self, host, address, port):
-            
-            self.alive = True
-            self.host, self.address, self.port  = host, address, port
-            self.last_message = ""
-            self.connected = False
-            threading.Thread(target = self.connect, daemon=True).start()
-        
-        def connect(self):
-            if self.host:
-                self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.server.setblocking(0)
-                self.server.bind(("0.0.0.0", self.port))
-                self.server.listen()
-                address = None
-                while self.address != address and self.alive:
-                    try :
-                        self.conn, (address, _) = self.server.accept()
-                        if address != self.address:
-                            self.conn.close()
-                            self.conn = None
-                        else :
-                            print(f"Connected with {address}")
-                            break
-                    except BlockingIOError:
-                        time.sleep(0.1)
-                    
-                self.server.close()
-            else :
-                self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                redo = True
-                while redo and self.alive:
-                    try :
-                        redo = False
-                        self.conn.connect((self.address, self.port))
-                        print(f"Connected with {self.address}")
-                    except ConnectionRefusedError:
-                        redo = True
-                        time.sleep(0.1)
-            
-            if self.alive:
-                self.conn.setblocking(1)
-                self.connected = True
-                threading.Thread(target=self.listening, daemon=True).start()
-
-        def listening(self):
-            while self.alive:
-                try :
-                    self.last_message = self.conn.recv(1024).decode("utf-8")
-                    #print(self.last_message)
-                except :
-                    print("Connection Lost")
-                    self.connected = False
-                    break
-            self.connect()
-
-        def send(self, message):
-            if self.connected:
-                self.conn.send(message.encode("utf-8"))
 
     def pos_to_coord(self, tup):
         """Convert pixels (mouse for example) coordinates into row/column coordinates"""
@@ -195,8 +141,117 @@ class DisplayBoard():
         surface.blit(text, (self.board_size//2-text.get_width()/2, self.board_size//2-text.get_height()/2))
         return surface
 
+    def handle_player(self, event):
+        if self.board_state == "Running":
+            if self.sub_state == None:
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: #Get the left click and places the piece in the hand if there is one at the click location
+                    pos = self.pos_to_coord(self.mouse)
+                    if self.board[pos] != None and self.board[pos].color == self.board.turn:
+                        self.temp_var["held_piece"] = pos
+                        self.temp_var["held_piece_moves"] = []
+                        lis = self.board.get_moves_starting_with(self.temp_var["held_piece"])
+                        for i in lis:
+                            self.temp_var["held_piece_moves"].append(i[1])
+
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3: #Drop the piece if right click
+                    self.temp_var = {}
+
+                if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and "held_piece" in self.temp_var:
+                    moves, lis = self.board.get_moves_starting_with(self.temp_var["held_piece"]), [] #Get all possible moves
+                    for i in moves: #Get all moves ending at the click location
+                        lis.append(i[1])
+
+                    choices = []
+                    if self.pos_to_coord(self.mouse) in lis:
+                        for i in moves:
+                            if (i[0], i[1]) == (self.temp_var["held_piece"], self.pos_to_coord(self.mouse)):
+                                choices.append(i)
+                    if choices:
+                        if len(choices) == 1:
+                            self.move_to_play = choices[0]
+                            self.temp_var["held_piece"] = None
+                            self.temp_var["held_piece_moves"] = []
+                    
+                        elif len(choices) > 1: #In case several moves end in the same square (promotion)
+                            self.sub_state = "promotion"
+                            self.temp_var = {}
+                            self.temp_var["choices"] = choices
+                    else :
+                        self.temp_var = {}
+
+            elif self.sub_state == "promotion" :
+                
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                    self.move_to_play = "Cancel" #Cancel promotion
+
+                if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                    mouse_pos = (7-self.mouse[1]//(self.board_size//8), self.mouse[0]//(self.board_size//8))
+                    if 0 <= mouse_pos[1] <= 1 and 7 >= mouse_pos[0] >= 6 :
+                        self.move_to_play = self.temp_var["choices"][mouse_pos[0]*2-mouse_pos[1]-11] #Transform click location in move index
+                    else :
+                        self.move_to_play = "Cancel" #Cancel promotion
+
+    def handle_remote_player(self, event):
+        if self.board_state == "Running":
+            if self.thread == None and self.connections[self.board.turn].connected:
+                def waiting_other_player():
+                    if self.board.last_move == None:
+                        message = "0;;"
+                    else:
+                        message = f"{len(self.board.fen_list)};{str(self.board.last_move[0][0])+str(self.board.last_move[0][1])+str(self.board.last_move[1][0])+str(self.board.last_move[1][1])+(str(self.board.last_move[2]) if len(self.board.last_move)>2 else '')};{self.board.to_fen()}"
+                    last = 0
+                    while True:
+                        if self.connections[self.board.turn] == None:
+                            return
+                        if time.time() - last > 5:
+                            self.connections[self.board.turn].send(message)
+                            last = time.time()
+                        last_message = self.connections[self.board.turn].last_message.split(";")
+                        if last_message[0] != "" and int(last_message[0]) == len(self.board.fen_list)+1:
+                            move = (int(last_message[1][0]), int(last_message[1][1])),(int(last_message[1][2]), int(last_message[1][3]))
+                            if len(last_message[1]) > 4:
+                                move = move + (last_message[1][4:],)
+                            self.move_to_play = move
+                            break
+                        time.sleep(0.1)
+                    if self.board.move(self.move_to_play).get_state() != "Running":
+                        self.unconnect(self.board.turn)
+                
+                self.thread = threading.Thread(target = waiting_other_player, daemon = True)
+                self.thread.start()
+        else :
+            #Case of a game ending, we need to tell the other which don't know
+            if self.thread == None and self.connections[self.board.turn].connected:
+                def ending_game():
+                    message = f"{len(self.board.fen_list)};{str(self.board.last_move[0][0])+str(self.board.last_move[0][1])+str(self.board.last_move[1][0])+str(self.board.last_move[1][1])+(str(self.board.last_move[2]) if len(self.board.last_move)>2 else '')};{self.board.to_fen()}"
+                    last = 0
+                    while True:
+                        if self.connections[self.board.turn] == None:
+                            return
+                        if not self.connections[self.board.turn].connected:
+                            self.unconnect(self.board.turn)
+                            return
+                        if time.time() - last > 5:
+                            self.connections[self.board.turn].send(message)
+                            last = time.time()
+                        time.sleep(0.1)
+                
+                self.thread = threading.Thread(target = ending_game, daemon = True)
+                self.thread.start()
+
+    def handle_bot(self, event):
+        if self.board_state == "Running":
+            if self.thread == None:
+                def computing_move():
+                    self.move_to_play = self.board.choose_best_move(1) #Play the move
+                self.thread = threading.Thread(target = computing_move)
+                self.thread.start()
+    
+    def handle_random(self, event):
+        if self.board_state == "Running":
+            self.move_to_play = random.choice(self.board.get_all_possible_moves()) #Play the move
+    
     def handle_events(self, events):
-        
         for event in events:
 
             if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION): #Get mouse pos
@@ -206,90 +261,8 @@ class DisplayBoard():
                 else :
                     event = pygame.event.Event(pygame.MOUSEBUTTONUP, button = 1)
                     self.mouse = (self.pos[0]-10, self.pos[1]-10)
-            
-            if self.page == "current":
-                if self.board.get_state() == "Running" :
-                    if self.settings[self.board.turn] == "player": #Check if it's the player turn
-                        if self.sub_state == None:
-                            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: #Get the left click and places the piece in the hand if there is one at the click location
-                                pos = self.pos_to_coord(self.mouse)
-                                if self.board[pos] != None and self.board[pos].color == self.board.turn:
-                                    self.temp_var["held_piece"] = pos
-                                    self.temp_var["held_piece_moves"] = []
-                                    lis = self.board.get_moves_starting_with(self.temp_var["held_piece"])
-                                    for i in lis:
-                                        self.temp_var["held_piece_moves"].append(i[1])
-
-                            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3: #Drop the piece if right click
-                                self.temp_var = {}
-
-                            if event.type == pygame.MOUSEBUTTONUP and event.button == 1 and "held_piece" in self.temp_var:
-                                moves, lis = self.board.get_moves_starting_with(self.temp_var["held_piece"]), [] #Get all possible moves
-                                for i in moves: #Get all moves ending at the click location
-                                    lis.append(i[1])
-
-                                choices = []
-                                if self.pos_to_coord(self.mouse) in lis:
-                                    for i in moves:
-                                        if (i[0], i[1]) == (self.temp_var["held_piece"], self.pos_to_coord(self.mouse)):
-                                            choices.append(i)
-                                if choices:
-                                    if len(choices) == 1:
-                                        self.move_to_play = choices[0]
-                                        self.temp_var["held_piece"] = None
-                                        self.temp_var["held_piece_moves"] = []
-                                
-                                    elif len(choices) > 1: #In case several moves end in the same square (promotion)
-                                        self.sub_state = "promotion"
-                                        self.temp_var = {}
-                                        self.temp_var["choices"] = choices
-                                else :
-                                    self.temp_var = {}
-
-                        elif self.sub_state == "promotion" :
-                            
-                            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-                                self.move_to_play = "Cancel" #Cancel promotion
-
-                            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-                                mouse_pos = (7-self.mouse[1]//(self.board_size//8), self.mouse[0]//(self.board_size//8))
-                                if 0 <= mouse_pos[1] <= 1 and 7 >= mouse_pos[0] >= 6 :
-                                    self.move_to_play = self.temp_var["choices"][mouse_pos[0]*2-mouse_pos[1]-11] #Transform click location in move index
-                                else :
-                                    self.move_to_play = "Cancel" #Cancel promotion
-                    
-                    elif self.settings[self.board.turn] == "remote player":
-                        if self.thread == None and self.connections[self.board.turn].connected:
-                            def waiting_other_player():
-                                if self.board.last_move == None:
-                                    message = "0;;"
-                                else:
-                                    message = f"{len(self.board.fen_list)};{str(self.board.last_move[0][0])+str(self.board.last_move[0][1])+str(self.board.last_move[1][0])+str(self.board.last_move[1][1])+(str(self.board.last_move[2]) if len(self.board.last_move)>2 else '')};{self.board.to_fen()}"
-                                last = 0
-                                while True:
-                                    if self.connections[self.board.turn] == None:
-                                        return 
-                                    if time.time() - last > 5:
-                                        self.connections[self.board.turn].send(message)
-                                        last = time.time()
-                                    last_message = self.connections[self.board.turn].last_message.split(";")
-                                    if last_message[0] != "" and int(last_message[0]) == len(self.board.fen_list)+1:
-                                        self.move_to_play = (int(last_message[1][0]), int(last_message[1][1])),(int(last_message[1][2]), int(last_message[1][3])), last_message[1][4:]
-                                        break
-                                    time.sleep(0.1)
-                            
-                            self.thread = threading.Thread(target = waiting_other_player, daemon = True)
-                            self.thread.start()
-                    
-                    elif self.settings[self.board.turn] == "bot": #Check if it's the bot turn
-                        if self.thread == None:
-                            def func():
-                                self.move_to_play = self.board.choose_best_move(1) #Play the move
-                            self.thread = threading.Thread(target = func)
-                            self.thread.start()
-
-                    elif self.settings[self.board.turn] == "random": #Checks if the round is to be played randomly
-                        self.move_to_play = random.choice(self.board.get_all_possible_moves()) #Play the move
+        
+            self.handling_methods[self.board.turn](event)
 
         if self.move_to_play != None:
             if self.move_to_play == "Cancel":
@@ -299,34 +272,123 @@ class DisplayBoard():
                 self.thread = None
             else :
                 self.board = self.board.move(self.move_to_play)
+                self.board_state = self.board.get_state()
                 self.sub_state = None
                 self.temp_var = {}
                 self.move_to_play = None
                 self.thread = None
-        
+
         surface = self.draw_board(self.mouse)
-        if self.board.get_state() != "Running":
-            surface = self.draw_pop_up(self.board.get_state(), surface)
+        if self.board_state != "Running":
+            surface = self.draw_pop_up(self.board_state, surface)
         elif self.sub_state == "promotion":
             surface = self.promotion_choice(surface, self.mouse)
         return surface
 
-    def unconnect(self):
-        for i in range(len(self.connections)):
-            if self.connections[i] != None:
-                if hasattr(self.connections[i], "server"):
-                    if self.connections[i].server != None:
-                        self.connections[i].server.close()
-                
-                if hasattr(self.connections[i], "conn"):
-                    if self.connections[i].conn != None:
-                        self.connections[i].conn.close()
+    def unconnect(self, n = "All"):
+        if n == "All":
+            for i in range(len(self.connections)):
+                self.unconnect(i)
+        else :
+            if self.connections[n] != None:
+                self.connections[n].close()
+                self.connections[n] = None #To deconnect waiting_other_player
 
-                self.connections[i].alive = False
+    def delete(self):
+        self.unconnect()
+        del self
 
-                self.connections[i] = None
+class Connection:
 
-class Button():
+    def __init__(self, host, address, port):
+        
+        self.alive = True
+        self.host, self.address, self.port  = host, address, port
+        self.last_message = ""
+        self.connected = False
+        threading.Thread(target = self.connect, daemon=True).start()
+    
+    def connect(self):
+        if self.host:
+            self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server.setblocking(0)
+            self.server.bind(("0.0.0.0", self.port))
+            self.server.listen()
+            address = None
+            while self.address != address and self.alive:
+                try :
+                    self.conn, (address, _) = self.server.accept()
+                    if address != self.address:
+                        self.conn.close()
+                        self.conn = None
+                    else :
+                        print("----------------")
+                        print(f"Connected with {address}")
+                        print("----------------")
+                        break
+                except BlockingIOError:
+                    time.sleep(0.1)
+                except OSError:
+                    pass
+            self.server.close()
+        else :
+            self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            redo = True
+            while redo and self.alive:
+                try :
+                    redo = False
+                    self.conn.connect((self.address, self.port))
+                    print("----------------")
+                    print(f"Connected with {self.address}")
+                    print("----------------")
+                except ConnectionRefusedError:
+                    redo = True
+                    time.sleep(0.1)
+                except OSError:
+                    pass
+        
+        if self.alive:
+            self.conn.setblocking(1)
+            self.connected = True
+            threading.Thread(target=self.listening, daemon=True).start()
+
+    def listening(self):
+        while self.alive:
+            try :
+                self.last_message = self.conn.recv(1024).decode("utf-8")
+                print(f"[CONNECTION] >> {self.last_message}")
+            except :
+                print("----------------")
+                print("Connection Lost")
+                print("----------------")
+                self.connected = False
+                break
+
+        if self.alive:
+            self.connect()
+
+    def send(self, message):
+        if self.connected:
+            print(f"[CONNECTION] << {message}")
+            self.conn.send(message.encode("utf-8"))
+
+    def close(self):
+        
+        self.alive = False
+
+        if hasattr(self, "conn"):
+            if self.conn != None:
+                self.conn.close()
+
+        if hasattr(self, "server"):
+            if self.server != None:
+                self.server.close()
+
+        print("[DEBUG] connection closed cleanly")
+
+        del self
+
+class Button:
 
     def __init__(self, parent, text, pos, action, background_color = (40, 40, 40), text_color = (255, 255, 255)):
         self.parent = parent
@@ -413,8 +475,7 @@ class MainWindow:
         def restart(window):
 
             #Fermeture des sockets pour éviter des bugs comme la connection avec une socket inutilisée
-            window.board.unconnect()
-            del window.board
+            window.board.delete()
             window.board = DisplayBoard(**window.board_settings)
 
         self.components.append(Button(self, "Restart", (self.board.pos[0], 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8),restart))

@@ -16,8 +16,8 @@ def settings_window(parent_window = None):
     def get_data():
         return {
             "settings" : [liste1.get(liste1.curselection()[0]), liste2.get(liste2.curselection()[0])],
-            "options" : [{"host" : white_host_check.get(), "address" : white_address_entry.get(), "port" : white_port_entry.get()},
-                {"host" : black_host_check.get(), "address" : black_address_entry.get(), "port" : black_port_entry.get()}],
+            "options" : [{"address" : white_address_entry.get(), "port" : white_port_entry.get()},
+                {"address" : black_address_entry.get(), "port" : black_port_entry.get()}],
             "bsd" : liste3.get(liste3.curselection()[0]),
             "bsz" : int(size_set.get()),
             "board" : fen_entry.get(),
@@ -28,14 +28,14 @@ def settings_window(parent_window = None):
     def save():
         with open("config.json" ,"+w") as file:
             json.dump(get_data(), file)
-    
+
     def reset():
         load(game.DEFAULT_SETTINGS)
 
     def load(default = None):
         if default == None:
             default = user_settings()
-        
+
         liste1.select_clear(0, "end")
         liste1.select_set(liste1.get(0, "end").index(default["settings"][0]))
         liste2.select_clear(0, "end")
@@ -46,13 +46,11 @@ def settings_window(parent_window = None):
         fen_entry.delete(0, "end")
         fen_entry.insert(0, default["board"])
 
-        white_host_check.set(default["options"][0]["host"])
         white_address_entry.delete(0, "end")
         white_address_entry.insert(0, default["options"][0]["address"])
         white_port_entry.delete(0, "end")
         white_port_entry.insert(0, default["options"][0]["port"])
 
-        black_host_check.set(default["options"][1]["host"])
         black_address_entry.delete(0, "end")
         black_address_entry.insert(0, default["options"][1]["address"])
         black_port_entry.delete(0, "end")
@@ -65,8 +63,7 @@ def settings_window(parent_window = None):
         refresh()
     
     def create():
-        parent_window.board.unconnect()
-        del parent_window.board
+        parent_window.board.delete()
         parent_window.__init__(get_data())
         window.destroy()
 
@@ -154,15 +151,12 @@ def settings_window(parent_window = None):
     frame6.columnconfigure(4, weight=2)
     frame6.columnconfigure(5, weight=3)
     
-    tk.Label(frame6, text="Host : ").grid(row = 0, column = 0, sticky="ew")
-    white_host_check = tk.BooleanVar()
-    tk.Checkbutton(frame6, variable=white_host_check).grid(row = 0, column = 1)
-    tk.Label(frame6, text="Address : ").grid(row = 0, column = 2, sticky="ew")
+    tk.Label(frame6, text="Address : ").grid(row = 0, column = 0, sticky="ew")
     white_address_entry = tk.Entry(frame6)
-    white_address_entry.grid(row = 0, column = 3, sticky="ew", padx = 5)
-    tk.Label(frame6, text="Port : ").grid(row = 0, column = 4, sticky="ew")
+    white_address_entry.grid(row = 0, column = 1, sticky="ew", padx = 5)
+    tk.Label(frame6, text="Port : ").grid(row = 0, column = 2, sticky="ew")
     white_port_entry = tk.Entry(frame6)
-    white_port_entry.grid(row = 0, column = 5, sticky="ew", padx = 5)
+    white_port_entry.grid(row = 0, column = 3, sticky="ew", padx = 5)
 
     frame7 = tk.LabelFrame(window, text = "Black remote player options")
     frame7.columnconfigure(0, weight=2)
@@ -172,15 +166,12 @@ def settings_window(parent_window = None):
     frame7.columnconfigure(4, weight=2)
     frame7.columnconfigure(5, weight=3)
 
-    tk.Label(frame7, text="Host : ").grid(row = 0, column = 0, sticky="ew")
-    black_host_check = tk.BooleanVar()
-    tk.Checkbutton(frame7, variable=black_host_check).grid(row = 0, column = 1)
-    tk.Label(frame7, text="Address : ").grid(row = 0, column = 2, sticky="ew")
+    tk.Label(frame7, text="Address : ").grid(row = 0, column = 0, sticky="ew")
     black_address_entry = tk.Entry(frame7)
-    black_address_entry.grid(row = 0, column = 3, sticky="ew", padx = 5)
-    tk.Label(frame7, text="Port : ").grid(row = 0, column = 4, sticky="ew")
+    black_address_entry.grid(row = 0, column = 1, sticky="ew", padx = 5)
+    tk.Label(frame7, text="Port : ").grid(row = 0, column = 2, sticky="ew")
     black_port_entry = tk.Entry(frame7)
-    black_port_entry.grid(row = 0, column = 5, sticky="ew", padx = 5)
+    black_port_entry.grid(row = 0, column = 3, sticky="ew", padx = 5)
 
 
     def refresh():
