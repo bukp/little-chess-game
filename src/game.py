@@ -6,10 +6,13 @@ import pygame
 import settings
 import chess
 import os
+from tkinter import filedialog
+
+DEBUG = False
 
 DEFAULT_SETTINGS = {"settings": ["player", "bot"], "options": [{"address": "127.0.0.1", "port": "54321"}, {"address": "127.0.0.1", "port": "54321"}], "bsd": "white", "bsz": 480, "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "pieces_style": "cburnett", "board_style": "brown"}
 
-class DisplayBoard():
+class DisplayBoard:
 
     def __init__(self,parent, settings = ("player", "bot"), options = (), bsd = "white", bsz = 480, board = "start", pieces_style = "cburnett", board_style = "brown", pos = (0, 0)):
         
@@ -32,7 +35,7 @@ class DisplayBoard():
         self.connections = [None, None]
         for i in range(2):
             if self.settings[i] == "remote player":
-                self.connections[i] = Connection(i == 0, options[i]["address"], int(options[i]["port"]))
+                self.connections[i] = Connection(i == 0, options[i]["address"], int(options[i]["port"]), DEBUG)
         
         self.handling_methods = [{
             "player" : self.handle_player,
@@ -44,7 +47,7 @@ class DisplayBoard():
         self.mouse = (0, 0)
         self.board = chess.Board(board)
         self.move_to_play = None
-        self.board_state = self.board.get_state()
+        self.board_state = None
         self.page = "current"
         self.sub_state = None
         self.temp_var = {}
@@ -67,8 +70,23 @@ class DisplayBoard():
     def draw_board(self, mouse_pos : tuple):
         """Draw the board"""
         board_surface = pygame.Surface((self.board_size, self.board_size))
-        held_piece = self.temp_var["held_piece"] if "held_piece" in self.temp_var else None
-        held_piece_moves = self.temp_var["held_piece_moves"] if "held_piece_moves" in self.temp_var else []
+
+        if self.page == "current":
+            held_piece = self.temp_var["held_piece"] if "held_piece" in self.temp_var else None
+            held_piece_moves = self.temp_var["held_piece_moves"] if "held_piece_moves" in self.temp_var else []
+            last_move = self.board.last_move
+            board = self.board
+        else :
+            held_piece = None
+            held_piece_moves = []
+
+            if type(self.page) == int:
+                board = chess.Board(self.board.fen_list[self.page])
+                last_move = self.board.move_list[self.page-1] if self.page >= 1 else None
+            else :
+                board = self.board
+                last_move = self.board.last_move
+
         board_surface.blit(self.sprites["Board"], (0, 0))
         for row in range(8):
             for col in range(8):
@@ -82,23 +100,23 @@ class DisplayBoard():
                     elif self.pos_to_coord(mouse_pos) == (row, col) or held_piece == (row, col):
                         cell_surface.fill(color)
                     else :
-                        if self.board[row, col] != None:  # Draw circles where the piece can go (full if the square is empty, else empty to allow the user to see the piece)
+                        if board[row, col] != None:  # Draw circles where the piece can go (full if the square is empty, else empty to allow the user to see the piece)
                             pygame.draw.circle(cell_surface, color, (self.board_size//16, self.board_size//16), self.board_size//16, self.board_size//96)
                         else :
                             pygame.draw.circle(cell_surface, color, (self.board_size//16, self.board_size//16), self.board_size//48)
                     board_surface.blit(cell_surface, self.coord_to_pos((row, col)))
                 
-                elif self.board.last_move != None and (row, col) in self.board.last_move:
+                elif last_move != None and (row, col) in last_move:
                     color = (0, 180, 0, 75)
                     cell_surface = pygame.Surface((self.board_size//8, self.board_size//8), pygame.SRCALPHA)
                     cell_surface.fill(color)
                     board_surface.blit(cell_surface, self.coord_to_pos((row, col)))
 
-                if (row, col) != held_piece and self.board[row, col] != None:  # Draw the piece unless it's held (sprites taken from lichess)
-                    board_surface.blit(self.sprites[self.board[row, col].letter.lower() if self.board[row, col].color == 1 else self.board[row, col].letter], self.coord_to_pos((row, col)))
+                if (row, col) != held_piece and board[row, col] != None:  # Draw the piece unless it's held (sprites taken from lichess)
+                    board_surface.blit(self.sprites[board[row, col].letter.lower() if board[row, col].color == 1 else board[row, col].letter], self.coord_to_pos((row, col)))
 
         if held_piece != None: # If the piece is hels, draw it under the mouse
-            board_surface.blit(self.sprites[self.board[held_piece].letter.lower() if self.board[held_piece].color == 1 else self.board[held_piece].letter], (mouse_pos[0] - self.board_size//16, mouse_pos[1] - self.board_size//16))
+            board_surface.blit(self.sprites[board[held_piece].letter.lower() if board[held_piece].color == 1 else board[held_piece].letter], (mouse_pos[0] - self.board_size//16, mouse_pos[1] - self.board_size//16))
         return board_surface
 
     def promotion_choice(self, surface, mouse_pos):
@@ -198,45 +216,52 @@ class DisplayBoard():
                     if self.board.last_move == None:
                         message = "0;;"
                     else:
-                        message = f"{len(self.board.fen_list)};{str(self.board.last_move[0][0])+str(self.board.last_move[0][1])+str(self.board.last_move[1][0])+str(self.board.last_move[1][1])+(str(self.board.last_move[2]) if len(self.board.last_move)>2 else '')};{self.board.to_fen()}"
+                        message = f"{len(self.board.fen_list)};{str(self.board.last_move[0][0])+str(self.board.last_move[0][1])+str(self.board.last_move[1][0])+str(self.board.last_move[1][1])+(str(self.board.last_move[2]) if len(self.board.last_move)>2 else '')};{self.board.to_complete_fen()}"
+
                     last = 0
                     while True:
-                        if self.connections[self.board.turn] == None:
+
+                        if not self.connections[self.board.turn].alive:
+                            self.thread = None
                             return
+                        
                         if time.time() - last > 5:
                             self.connections[self.board.turn].send(message)
                             last = time.time()
+
                         last_message = self.connections[self.board.turn].last_message.split(";")
-                        if last_message[0] != "" and int(last_message[0]) == len(self.board.fen_list)+1:
-                            move = (int(last_message[1][0]), int(last_message[1][1])),(int(last_message[1][2]), int(last_message[1][3]))
-                            if len(last_message[1]) > 4:
-                                move = move + (last_message[1][4:],)
-                            self.move_to_play = move
-                            break
-                        time.sleep(0.1)
-                    if self.board.move(self.move_to_play).get_state() != "Running":
-                        self.unconnect(self.board.turn)
+                        if last_message[0].isdigit():
+                            if int(last_message[0]) > len(self.board.fen_list)+1 or int(last_message[0]) < len(self.board.fen_list)-1:
+                                self.connections[self.board.turn].end_connection()
+                                self.thread = None
+                                return
+
+                            if int(last_message[0]) == len(self.board.fen_list)+1:
+                                break
+
+                        time.sleep(0.5)
+                    
+                    move = (int(last_message[1][0]), int(last_message[1][1])),(int(last_message[1][2]), int(last_message[1][3]))
+                    if len(last_message[1]) > 4:
+                        move = move + (last_message[1][4:],)
+                    simulated_board = self.board.move(move)
+
+                    if simulated_board.to_complete_fen() != last_message[2]:
+                        self.connections[self.board.turn].end_connection()
+                        self.thread = None
+                        return
                 
+                    self.move_to_play = move
+                    
+                    if simulated_board.get_state() != "Running":
+                        self.unconnect(self.board.turn)
+                    
                 self.thread = threading.Thread(target = waiting_other_player, daemon = True)
                 self.thread.start()
         else :
             #Case of a game ending, we need to tell the other which don't know
             if self.thread == None and self.connections[self.board.turn].connected:
-                def ending_game():
-                    message = f"{len(self.board.fen_list)};{str(self.board.last_move[0][0])+str(self.board.last_move[0][1])+str(self.board.last_move[1][0])+str(self.board.last_move[1][1])+(str(self.board.last_move[2]) if len(self.board.last_move)>2 else '')};{self.board.to_fen()}"
-                    last = 0
-                    while True:
-                        if self.connections[self.board.turn] == None:
-                            return
-                        if not self.connections[self.board.turn].connected:
-                            self.unconnect(self.board.turn)
-                            return
-                        if time.time() - last > 5:
-                            self.connections[self.board.turn].send(message)
-                            last = time.time()
-                        time.sleep(0.1)
-                
-                self.thread = threading.Thread(target = ending_game, daemon = True)
+                self.thread = threading.Thread(target = self.connections[self.board.turn].end_connection, args=[f"{len(self.board.fen_list)};{str(self.board.last_move[0][0])+str(self.board.last_move[0][1])+str(self.board.last_move[1][0])+str(self.board.last_move[1][1])+(str(self.board.last_move[2]) if len(self.board.last_move)>2 else '')};{self.board.to_complete_fen()}"], daemon = True)
                 self.thread.start()
 
     def handle_bot(self, event):
@@ -252,8 +277,12 @@ class DisplayBoard():
             self.move_to_play = random.choice(self.board.get_all_possible_moves()) #Play the move
     
     def handle_events(self, events):
-        for event in events:
+        last_state = self.board_state
 
+        if self.board_state == None:
+            self.board_state = self.board.get_state()
+
+        for event in events:
             if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION): #Get mouse pos
                 pointer = event.pos
                 if self.pos[0] <= pointer[0] < self.pos[0] + self.board_size and self.pos[1] <= pointer[1] < self.pos[1] + self.board_size:
@@ -261,8 +290,26 @@ class DisplayBoard():
                 else :
                     event = pygame.event.Event(pygame.MOUSEBUTTONUP, button = 1)
                     self.mouse = (self.pos[0]-10, self.pos[1]-10)
-        
-            self.handling_methods[self.board.turn](event)
+
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3): #Go back at current page
+                self.page = "current"
+            
+            if event.type == pygame.KEYDOWN and event.key == (pygame.K_LEFT) or event.type == pygame.MOUSEWHEEL and event.y < 0:
+                if type(self.page) == str:
+                    self.page = len(self.board.fen_list) - 1
+                else :
+                    self.page = self.page - 1
+            
+            if event.type == pygame.KEYDOWN and event.key == (pygame.K_RIGHT) or event.type == pygame.MOUSEWHEEL and event.y > 0:
+                if type(self.page) == int:
+                    self.page = self.page + 1
+
+            if type(self.page) == int:
+                self.page = max(0, self.page) #Clamping page above 0
+                if self.page >= len(self.board.fen_list) : #Clamping under the current page
+                    self.page = "current"
+
+            self.handling_methods[self.board.turn](event) #Call differents handling functions for players, bots, ...
 
         if self.move_to_play != None:
             if self.move_to_play == "Cancel":
@@ -270,6 +317,7 @@ class DisplayBoard():
                 self.temp_var = {}
                 self.move_to_play = None
                 self.thread = None
+                self.page = "current"
             else :
                 self.board = self.board.move(self.move_to_play)
                 self.board_state = self.board.get_state()
@@ -277,13 +325,37 @@ class DisplayBoard():
                 self.temp_var = {}
                 self.move_to_play = None
                 self.thread = None
+                self.page = "current"
 
+        if self.board_state != "Running" and self.board_state != last_state:
+            self.page = "popup"
+        
         surface = self.draw_board(self.mouse)
-        if self.board_state != "Running":
+        
+        if self.page == "popup":
             surface = self.draw_pop_up(self.board_state, surface)
-        elif self.sub_state == "promotion":
+        
+        if self.sub_state == "promotion":
             surface = self.promotion_choice(surface, self.mouse)
+        
         return surface
+
+    def import_pgn(self, pgn):
+        """Execute moves from a PGN format string.
+        Should be used only at the moment the object is created"""
+
+        pgn = [i for i in pgn.split(" ") if "." not in i][:-1]
+        for i in pgn:
+            self.board = self.board.move(self.board.make_unreadeable(i))
+
+    def export_pgn(self):
+        if self.board.to_pgn() == None:
+            return
+        diag = filedialog.asksaveasfile("w", filetypes = (("Portable Game Notation", "*.pgn"),), defaultextension = ".pgn")
+        if diag == None:
+            return
+        with open(diag.name, "w", encoding="utf-8") as file:
+            file.write(self.board.to_pgn())
 
     def unconnect(self, n = "All"):
         if n == "All":
@@ -291,8 +363,8 @@ class DisplayBoard():
                 self.unconnect(i)
         else :
             if self.connections[n] != None:
+                self.connections[n].send("!close")
                 self.connections[n].close()
-                self.connections[n] = None #To deconnect waiting_other_player
 
     def delete(self):
         self.unconnect()
@@ -328,7 +400,7 @@ class Connection:
                             print("----------------")
                         break
                 except BlockingIOError:
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                 except OSError:
                     pass
             self.server.close()
@@ -344,7 +416,7 @@ class Connection:
                         print("----------------")
                 except ConnectionRefusedError:
                     redo = True
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                 except OSError:
                     pass
         
@@ -357,6 +429,8 @@ class Connection:
         while self.alive:
             try :
                 self.last_message = self.conn.recv(1024).decode("utf-8")
+                if self.last_message == "":
+                    raise Exception()
                 if self.debug:
                     print(f"[CONNECTION] >> {self.last_message}")
             except :
@@ -366,18 +440,30 @@ class Connection:
                 self.connected = False
                 break
 
+            if self.last_message == "!close":
+                self.close()
+                return
+
         if self.alive:
             self.connect()
 
     def send(self, message):
         if self.connected:
-            if self.debug:
-                print(f"[CONNECTION] << {message}")
-            self.conn.send(message.encode("utf-8"))
+            try :
+                self.conn.send(message.encode("utf-8"))
+                if self.debug:
+                    print(f"[CONNECTION] << {message}")
+            except ConnectionResetError:
+                if self.debug:
+                    print(f"[DEBUG] error sending message {message}")
+            except OSError:
+                if self.debug:
+                    print(f"[DEBUG] error sending message {message}")
 
     def close(self):
         
         self.alive = False
+        self.connected = False
 
         if hasattr(self, "conn"):
             if self.conn != None:
@@ -391,6 +477,15 @@ class Connection:
             print("[DEBUG] connection closed cleanly")
 
         del self
+
+    def end_connection(self, message = "!close"):
+        last = 0
+        while self.connected:
+            if time.time() - last > 5:
+                self.send(message)
+                last = time.time()
+            time.sleep(0.5)
+        self.close()
 
 class Button:
 
@@ -477,22 +572,34 @@ class MainWindow:
         self.components.append(Button(self, "Settings", (self.board.pos[0]+self.board.board_size*3//4+2, 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8), open_settings))
         
         def restart(window):
-
             #Fermeture des sockets pour éviter des bugs comme la connection avec une socket inutilisée
             window.board.delete()
             window.board = DisplayBoard(**window.board_settings)
 
         self.components.append(Button(self, "Restart", (self.board.pos[0], 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8),restart))
 
-        def func1(window):
-            print(threading.active_count(), threading.enumerate())
+        def import_pgn(window):
+            diag = filedialog.askopenfile("r", defaultextension="*.pgn")
+            if diag == None:
+                return
+            with open(diag.name, "r", encoding="utf-8") as file:
+                pgn = file.read()
+            
+            if "\n\n" in pgn:
+                pgn = pgn.split("\n\n")[1]
+            
+            pgn = pgn.replace("\n", " ")
+            
+            window.board.delete()
+            window.board = DisplayBoard(**window.board_settings)
+            window.board.import_pgn(pgn)
 
-        self.components.append(Button(self, "", (self.board.pos[0]+self.board.board_size//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), func1))
+        self.components.append(Button(self, "Import", (self.board.pos[0]+self.board.board_size//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), import_pgn))
 
-        def func2(window):
-            print(window.board.board.to_complete_fen())
+        def export(window):
+            window.board.export_pgn()
 
-        self.components.append(Button(self, "", (self.board.pos[0]+self.board.board_size*2//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), func2))
+        self.components.append(Button(self, "Export", (self.board.pos[0]+self.board.board_size*2//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), export))
         
     def run(self, fps = 60):
 
@@ -522,5 +629,4 @@ class MainWindow:
                 render(i)
 
 if __name__ == "__main__":
-    os.chdir(os.path.dirname(os.path.abspath(__file__))+"\\..")
     MainWindow().run()

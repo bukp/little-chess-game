@@ -1,6 +1,5 @@
-ajouter les pgn
-ajouter les vérifications fen pour le réseau
-ajouter les pages
 ajouter un timer
+télécharger les fonts
+ajouter un menu
 
 (améliorer l'ia, lui ajouter une notion du temps)

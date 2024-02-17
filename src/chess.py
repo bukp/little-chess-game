@@ -1,3 +1,5 @@
+STARTING_POS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
 def int_to_name(row : int, col : int) -> tuple:
     """Converts row/column position to algebraic notation"""
 
@@ -17,9 +19,9 @@ def name_to_int(key : str) -> tuple:
 class Piece:
     """Object standing for pieces"""
 
-    def __init__(self, letter : str, type : str, color : int, can_castle : bool = False) -> None:
-        self.letter = letter
+    def __init__(self, type : str, color : int, can_castle : bool = False) -> None:
         self.type = type
+        self.letter = "N" if type == "Knight" else type[0].upper()
         self.color = color
         self.can_castle = can_castle
 
@@ -36,7 +38,7 @@ class Piece:
         return f"{self.type}, color : {self.get_color()} "
     
     def copy(self):
-        return Piece(self.letter, self.type, self.color, self.can_castle)
+        return Piece(self.type, self.color, self.can_castle)
 
     def list_moves(self, piece_pos : tuple, board, try_castle : bool = True) -> list:
         """Function calculating all possible moves for the piece.
@@ -95,7 +97,7 @@ class Piece:
             for i in possible_moves.copy(): #Add promotion for first and last row
                 if i[1][0] == 0 or i[1][0] == 7:
                     possible_moves.remove(i)
-                    for j in ["K", "B", "R", "Q"]:
+                    for j in ["N", "B", "R", "Q"]:
                         possible_moves.append(i+("="+j,))
         
         if self.type == "King" and try_castle:
@@ -115,73 +117,52 @@ class Piece:
 
         return possible_moves
 
-def king(color : int, can_castle : bool = True) -> Piece:
-    return Piece("K", "King", color, can_castle)
-
-def pawn(color : int, can_castle : bool = False) -> Piece:
-    return Piece("P", "Pawn", color, can_castle)
-
-def knight(color : int, can_castle : bool = False) -> Piece:
-    return Piece("N", "Knight", color, can_castle)
-
-def bishop(color : int, can_castle : bool = False) -> Piece:
-    return Piece("B", "Bishop", color, can_castle)
-
-def rook(color : int, can_castle : bool = True) -> Piece:
-    return Piece("R", "Rook", color, can_castle)
-
-def queen(color : int, can_castle : bool = False) -> Piece:
-    return Piece("Q", "Queen", color, can_castle)
-
 class Board:
     """Object representing the board.
-    It is not intended to change during execution"""
+    It is not intended to change during execution, moving a piece with self.move() create an new instance of the board"""
 
-    def __init__(self, grid : list = "start", turn : int = 0, last_move : str = None, fen_list = [], last_capture = 0) -> None:
+    def __init__(self, grid : list = "start", turn : int = 0, last_move : str = None, fen_list = [], move_list = [], last_capture = 0) -> None:
         self.turn = turn
         self.grid = [[None for _ in range(8)]for _ in range(8)] #Empty grid
         self.last_capture = last_capture
         self.last_move = last_move
         self.fen_list = fen_list
+        self.move_list = move_list
 
         if type(grid) == str:
             if grid == "start":
-                grid = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" #Starting pos in FEN format
+                grid = STARTING_POS #Starting pos in FEN format
             
             self.grid = [[None for _ in range(8)]for _ in range(8)]
             current = (7, 0)
-            constructors = {"P" : pawn,"N" : knight,"B" : bishop,"R" : rook,"Q" : queen,"K" : king}
+            name = {"P" : "Pawn","N" : "Knight","B" : "Bishop","R" : "Rook","Q" : "Queen","K" : "King"}
 
             for i in grid.split(" ")[0]:
                 if i == "/":
                     current = (current[0]-1, 0)
                 elif i.isdigit():
                     current = (current[0], current[1]+int(i))
-                elif i.upper() in constructors:
-                    self.grid[current[0]][current[1]] = constructors[i.upper()](1 if i.islower() else 0, False)
+                elif i.upper() in name:
+                    self.grid[current[0]][current[1]] = Piece(name[i.upper()],1 if i.islower() else 0, False)
                     current = (current[0], current[1]+1)
             
             if len(grid.split(" ")) >= 2:
                 self.turn = int(grid.split(" ")[1] == "b")
             
-            if len(grid.split(" ")) < 3:
-                castling = "KQkq"
-            else :
-                castling = grid.split(" ")[2]
-            
-            if castling != "-":
-                if "K" in castling:
-                    self[0, 4].can_castle = True
-                    self[0, 7].can_castle = True
-                if "Q" in castling:
-                    self[0, 4].can_castle = True
-                    self[0, 0].can_castle = True
-                if "k" in castling:
-                    self[7, 4].can_castle = True
-                    self[7, 7].can_castle = True
-                if "q" in castling:
-                    self[7, 4].can_castle = True
-                    self[7, 0].can_castle = True
+            if len(grid.split(" ")) >= 3:
+                if grid.split(" ")[2] != "-":
+                    if "K" in grid.split(" ")[2]:
+                        self[0, 4].can_castle = True
+                        self[0, 7].can_castle = True
+                    if "Q" in grid.split(" ")[2]:
+                        self[0, 4].can_castle = True
+                        self[0, 0].can_castle = True
+                    if "k" in grid.split(" ")[2]:
+                        self[7, 4].can_castle = True
+                        self[7, 7].can_castle = True
+                    if "q" in grid.split(" ")[2]:
+                        self[7, 4].can_castle = True
+                        self[7, 0].can_castle = True
 
             if len(grid.split(" ")) >= 4 and grid.split(" ")[3] != "-":
                 move = name_to_int(grid.split(" ")[3])
@@ -194,7 +175,7 @@ class Board:
                 self.last_capture = int(grid.split(" ")[4])
 
             if len(grid.split(" ")) >= 6:
-                self.fen_list = ["" for _ in range(int(grid.split(" ")[5])*2+self.turn-1)]
+                self.fen_list = ["" for _ in range((int(grid.split(" ")[5])-1)*2+self.turn)]
         else:
             self.grid = grid
 
@@ -260,6 +241,25 @@ class Board:
     
         return out
 
+    def to_pgn(self) -> str:
+        """Return a complete string in PGN format representing the moves mades from the beginning of the game"""
+        if len(self.fen_list) <= 0 or self.fen_list[0] != STARTING_POS.split(" ")[0]:
+            return 
+        
+        simulated_board = Board()
+        out = ""
+        for i in range(len(self.move_list)):
+            out += " "
+            if i%2 == 0:
+                out += str(i//2+1)+". "
+            out += simulated_board.make_readeable(self.move_list[i])
+            simulated_board = simulated_board.move(self.move_list[i])
+        
+        if self.get_state() != "Running":
+            out += " "+self.get_state()[1].replace(" ", "")
+
+        return out[1:]
+    
     def to_complete_fen(self) -> str:
         """Return a complete string in FEN format representing the board that can be recognize by chess programs"""
 
@@ -305,7 +305,7 @@ class Board:
 
         """Return a Board object with a piece moved. The movement is a tuple of two tuples indicating the start position and the destination position."""
 
-        new_board = Board(self.copy_grid(), (self.turn + 1)%2, movement, self.fen_list + [self.to_fen()], 0 if type(movement) == tuple and (self[movement[1]] != None or self[movement[0]].type == "Pawn") else self.last_capture + 1)
+        new_board = Board(self.copy_grid(), (self.turn + 1)%2, movement, self.fen_list + [self.to_fen()], self.move_list + [movement],0 if type(movement) == tuple and (self[movement[1]] != None or self[movement[0]].type == "Pawn") else self.last_capture + 1)
         
         if (movement == ((0, 4), (0, 6)) or movement == ((7, 4), (7, 6))) and self[movement[0]].type == "King" and self[movement[0]].can_castle: #Short castle 
             new_board[self.turn * 7,6], new_board[self.turn * 7,4] = new_board[self.turn * 7,4], None
@@ -325,14 +325,14 @@ class Board:
 
             if arg != None:
                 if "=" in arg: #Detect promotion
-                    if arg[1] == "K":
-                        new_board[end_pos] = knight(new_board[end_pos].color)
+                    if arg[1] == "N":
+                        new_board[end_pos] = Piece("Knight", new_board[end_pos].color, can_castle = False)
                     if arg[1] == "B":
-                        new_board[end_pos] = bishop(new_board[end_pos].color)
+                        new_board[end_pos] = Piece("Bishop", new_board[end_pos].color, can_castle = False)
                     if arg[1] == "R":
-                        new_board[end_pos] = rook(new_board[end_pos].color, can_castle = False)
+                        new_board[end_pos] = Piece("Rook", new_board[end_pos].color, can_castle = False)
                     if arg[1] == "Q":
-                        new_board[end_pos] = queen(new_board[end_pos].color)
+                        new_board[end_pos] = Piece("Queen", new_board[end_pos].color, can_castle = False)
 
                 elif "&" in arg: #Detect en passant capture
                     new_board[int(movement[2][1]),int(movement[2][2])] = None
@@ -417,8 +417,12 @@ class Board:
     def make_readeable(self, movement : tuple) -> str:
         """Return a string of the abbreviated algebraic notation of the move from this board"""
 
-        if type(movement) != tuple:
-            return movement
+        if self[movement[0]].type == "King" and abs(movement[0][1]-movement[1][1]) == 2:
+            if movement[0][1]-movement[1][1] == 2:
+                return "O-O-O"
+            else :
+                return "O-O"
+
         out = ""
         if self[movement[0]].type != "Pawn" :
             out += self[movement[0]].letter
@@ -452,6 +456,13 @@ class Board:
             else :
                 out += "+"
         return out
+
+    def make_unreadeable(self, movement : str) -> str:
+        possible_moves = self.get_all_possible_moves()
+        for i in range(len(possible_moves)):
+            if self.make_readeable(possible_moves[i]) == movement:
+                return possible_moves[i]
+        raise Exception(f"impossible to convert : {movement}, no matching movement found")
 
     def static_eval(self) -> int:
         """Assign a score to a board based on the game state (checkmate, stalemate, ...), the value of the pieces on it, and the freedom of movement of the pieces"""
