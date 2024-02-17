@@ -7,7 +7,7 @@ import settings
 import chess
 import os
 
-DEFAULT_SETTINGS = {"settings": ["player", "bot"], "options": [{"address": "127.0.0.1", "port": "54321"}, {"address": "127.0.0.1", "port": "54321"}], "bsd": "white", "bsz": 480, "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR", "pieces_style": "cburnett", "board_style": "brown"}
+DEFAULT_SETTINGS = {"settings": ["player", "bot"], "options": [{"address": "127.0.0.1", "port": "54321"}, {"address": "127.0.0.1", "port": "54321"}], "bsd": "white", "bsz": 480, "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "pieces_style": "cburnett", "board_style": "brown"}
 
 class DisplayBoard():
 
@@ -300,12 +300,13 @@ class DisplayBoard():
 
 class Connection:
 
-    def __init__(self, host, address, port):
+    def __init__(self, host, address, port, debug = False):
         
         self.alive = True
         self.host, self.address, self.port  = host, address, port
         self.last_message = ""
         self.connected = False
+        self.debug = debug
         threading.Thread(target = self.connect, daemon=True).start()
     
     def connect(self):
@@ -322,9 +323,9 @@ class Connection:
                         self.conn.close()
                         self.conn = None
                     else :
-                        print("----------------")
-                        print(f"Connected with {address}")
-                        print("----------------")
+                        if self.debug:
+                            print(f"Connected with {address}")
+                            print("----------------")
                         break
                 except BlockingIOError:
                     time.sleep(0.1)
@@ -338,9 +339,9 @@ class Connection:
                 try :
                     redo = False
                     self.conn.connect((self.address, self.port))
-                    print("----------------")
-                    print(f"Connected with {self.address}")
-                    print("----------------")
+                    if self.debug:
+                        print(f"Connected with {self.address}")
+                        print("----------------")
                 except ConnectionRefusedError:
                     redo = True
                     time.sleep(0.1)
@@ -356,11 +357,12 @@ class Connection:
         while self.alive:
             try :
                 self.last_message = self.conn.recv(1024).decode("utf-8")
-                print(f"[CONNECTION] >> {self.last_message}")
+                if self.debug:
+                    print(f"[CONNECTION] >> {self.last_message}")
             except :
-                print("----------------")
-                print("Connection Lost")
-                print("----------------")
+                if self.debug:
+                    print("----------------")
+                    print("Connection Lost")
                 self.connected = False
                 break
 
@@ -369,7 +371,8 @@ class Connection:
 
     def send(self, message):
         if self.connected:
-            print(f"[CONNECTION] << {message}")
+            if self.debug:
+                print(f"[CONNECTION] << {message}")
             self.conn.send(message.encode("utf-8"))
 
     def close(self):
@@ -383,8 +386,9 @@ class Connection:
         if hasattr(self, "server"):
             if self.server != None:
                 self.server.close()
-
-        print("[DEBUG] connection closed cleanly")
+        
+        if self.debug:
+            print("[DEBUG] connection closed cleanly")
 
         del self
 
@@ -486,11 +490,10 @@ class MainWindow:
         self.components.append(Button(self, "", (self.board.pos[0]+self.board.board_size//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), func1))
 
         def func2(window):
-            pass
+            print(window.board.board.to_complete_fen())
 
         self.components.append(Button(self, "", (self.board.pos[0]+self.board.board_size*2//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), func2))
         
-
     def run(self, fps = 60):
 
         self.running = True

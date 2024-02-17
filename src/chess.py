@@ -140,25 +140,63 @@ class Board:
     def __init__(self, grid : list = "start", turn : int = 0, last_move : str = None, fen_list = [], last_capture = 0) -> None:
         self.turn = turn
         self.grid = [[None for _ in range(8)]for _ in range(8)] #Empty grid
+        self.last_capture = last_capture
+        self.last_move = last_move
+        self.fen_list = fen_list
+
         if type(grid) == str:
             if grid == "start":
-                grid = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR" #Starting pos in FEN format
+                grid = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" #Starting pos in FEN format
+            
             self.grid = [[None for _ in range(8)]for _ in range(8)]
             current = (7, 0)
             constructors = {"P" : pawn,"N" : knight,"B" : bishop,"R" : rook,"Q" : queen,"K" : king}
-            for i in grid.split()[0]:
+
+            for i in grid.split(" ")[0]:
                 if i == "/":
                     current = (current[0]-1, 0)
                 elif i.isdigit():
                     current = (current[0], current[1]+int(i))
                 elif i.upper() in constructors:
-                    self.grid[current[0]][current[1]] = constructors[i.upper()](1 if i.islower() else 0)
+                    self.grid[current[0]][current[1]] = constructors[i.upper()](1 if i.islower() else 0, False)
                     current = (current[0], current[1]+1)
+            
+            if len(grid.split(" ")) >= 2:
+                self.turn = int(grid.split(" ")[1] == "b")
+            
+            if len(grid.split(" ")) < 3:
+                castling = "KQkq"
+            else :
+                castling = grid.split(" ")[2]
+            
+            if castling != "-":
+                if "K" in castling:
+                    self[0, 4].can_castle = True
+                    self[0, 7].can_castle = True
+                if "Q" in castling:
+                    self[0, 4].can_castle = True
+                    self[0, 0].can_castle = True
+                if "k" in castling:
+                    self[7, 4].can_castle = True
+                    self[7, 7].can_castle = True
+                if "q" in castling:
+                    self[7, 4].can_castle = True
+                    self[7, 0].can_castle = True
+
+            if len(grid.split(" ")) >= 4 and grid.split(" ")[3] != "-":
+                move = name_to_int(grid.split(" ")[3])
+                if self.turn != 0:
+                    self.last_move = (move[0]-1, move[1]), (move[0]+1, move[1])
+                else :
+                    self.last_move = (move[0]+1, move[1]), (move[0]-1, move[1])
+
+            if len(grid.split(" ")) >= 5:
+                self.last_capture = int(grid.split(" ")[4])
+
+            if len(grid.split(" ")) >= 6:
+                self.fen_list = ["" for _ in range(int(grid.split(" ")[5])*2+self.turn-1)]
         else:
             self.grid = grid
-        self.last_move = last_move
-        self.fen_list = fen_list
-        self.last_capture = last_capture
 
     def __getitem__(self, key : tuple) -> Piece:
         """Return the piece at the pos on the board.
@@ -203,6 +241,7 @@ class Board:
     def to_fen(self) -> str:
         """Return a string in FEN format representing the board"""
 
+        #board representation
         out = ""
         for row in range(7, -1, -1):
             for col in range(8):
@@ -217,7 +256,50 @@ class Board:
                     else :
                         out += self[row, col].letter.lower()
             out += "/"
-        return out[:-1]
+        out = out[:-1]
+    
+        return out
+
+    def to_complete_fen(self) -> str:
+        """Return a complete string in FEN format representing the board that can be recognize by chess programs"""
+
+        out = self.to_fen()
+
+        #Active color
+        out += " "+("w" if self.turn == 0 else "b")
+
+        #Castling
+        castling_options = ""
+        if self[0, 4] != None and self[0, 4].type == "King" and self[0, 4].can_castle: #Le roi blanc peut roquer
+            if self[0, 7] != None and self[0, 7].type == "Rook" and self[0, 7].can_castle: #La tour coté dame peut roquer
+                castling_options += "K"
+            if self[0, 0] != None and self[0, 0].type == "Rook" and self[0, 0].can_castle: #La tour coté dame peut roquer
+                castling_options += "Q"
+
+        if self[7, 4] != None and self[7, 4].type == "King" and self[7, 4].can_castle: #Le roi noir peut roquer
+            if self[7, 7] != None and self[7, 7].type == "Rook" and self[7, 7].can_castle: #La tour coté dame peut roquer
+                castling_options += "k"
+            if self[7, 0] != None and self[7, 0].type == "Rook" and self[7, 0].can_castle: #La tour coté dame peut roquer
+                castling_options += "q"
+        
+        if castling_options == "":
+            out += " -"
+        else :
+            out += " "+castling_options
+        
+        #En passant
+        if self.last_move != None and self[self.last_move[1]].type == "Pawn" and abs(self.last_move[0][0]-self.last_move[1][0]) == 2:
+            out += " "+int_to_name(self.last_move[1][0]+1-2*self.turn, self.last_move[1][1])
+        else :
+            out += " -"
+
+        #Halfmove clock
+        out += " "+str(self.last_capture)
+
+        #Fullmove clock
+        out += " "+str(len(self.fen_list)//2+1)
+        
+        return out
 
     def move(self, movement : tuple):
 

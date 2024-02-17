@@ -1,6 +1,6 @@
-ajouter les fen complets et les pgn
-ajouter les vérifications fen (pour le début de partie et pour le réseau)
+ajouter les pgn
+ajouter les vérifications fen pour le réseau
 ajouter les pages
+ajouter un timer
 
-(ajouter les pré-moves)
-(améliorer l'ia)
+(améliorer l'ia, lui ajouter une notion du temps)
