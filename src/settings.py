@@ -72,7 +72,7 @@ def settings_window(parent_window = None):
     window = tk.Tk()
     window.title("Game settings")
     window.geometry(f"{size[0]}x{size[1]}")
-    window.resizable(True, True)
+    window.resizable(False, False)
     window.iconphoto(True, tk.PhotoImage(file = "asset/pieces/cburnett/bN.png"))
     window.columnconfigure(0, weight=1)
 
