@@ -5,7 +5,7 @@ import socket
 import pygame
 import settings
 import chess
-import os
+import pyperclip
 from tkinter import filedialog
 
 DEBUG = False
@@ -140,13 +140,13 @@ class DisplayBoard:
         pygame.draw.rect(surface, (255, 255, 255), pygame.Rect(cell_size*2, cell_size*3, cell_size*4, cell_size*2))
         pygame.draw.rect(surface, (0, 0, 0), pygame.Rect(cell_size*2, cell_size*3, cell_size*4, cell_size*2), max(1, int(3*self.board_size/480)))
 
-        text1 = pygame.font.SysFont("FreeSans Gras", 300).render(text[0], True, (0, 0, 0), (255, 255, 255))
+        text1 = font.render(text[0], True, (0, 0, 0), (255, 255, 255))
         coef = int(cell_size*9/10)/max(text1.get_height(), text1.get_width()//4)
         surf = pygame.Surface(text1.get_size())
         surf.blit(text1, (0, 0))
         text1 = pygame.transform.smoothscale(surf, (int(surf.get_width()*coef), int(surf.get_height()*coef)))
 
-        text2 = pygame.font.SysFont("FreeSans Gras", 300).render(text[1], True, (0, 0, 0), (255, 255, 255))
+        text2 = font.render(text[1], True, (0, 0, 0), (255, 255, 255))
         coef = int(cell_size*7/10)/max(text2.get_height(), text2.get_width()//4)
         surf = pygame.Surface(text2.get_size())
         surf.blit(text2, (0, 0))
@@ -340,11 +340,14 @@ class DisplayBoard:
         
         return surface
 
+    def filter_events(self, events):
+        return events
+
     def import_pgn(self, pgn):
         """Execute moves from a PGN format string.
         Should be used only at the moment the object is created"""
 
-        pgn = [i for i in pgn.split(" ") if "." not in i][:-1]
+        pgn = [i for i in pgn.split(" ") if "." not in i and i not in ("1-0", "0-1", "½-½")]
         for i in pgn:
             self.board = self.board.move(self.board.make_unreadeable(i))
 
@@ -489,8 +492,8 @@ class Connection:
 
 class Button:
 
-    def __init__(self, parent, text, pos, action, background_color = (40, 40, 40), text_color = (255, 255, 255)):
-        self.parent = parent
+    def __init__(self, window, text, pos, action, background_color = (40, 40, 40), text_color = (255, 255, 255), press_button = True):
+        self.window = window
         self.text = text
         self.size = pos[2:]
         self.pos = pos
@@ -499,8 +502,9 @@ class Button:
         self.text_color = text_color
         self.state = "UP"
         self.is_over = False
+        self.press_button = press_button
 
-        surface = pygame.font.SysFont("FreeSans Gras", 300).render(self.text, True, self.text_color, self.background_color)
+        surface = font.render(self.text, True, self.text_color, self.background_color)
         text_surface = pygame.Surface(surface.get_size())
         text_surface.blit(surface, (0, 0))
         coef = max(text_surface.get_width()/self.size[0], text_surface.get_height()/self.size[1])/(9/10)
@@ -522,7 +526,7 @@ class Button:
                     elif event.type == pygame.MOUSEBUTTONUP:
                         if self.state == "DOWN":
                             self.state = "UP"
-                            self.action(self.parent)
+                            self.action(self.window)
                         self.state = "UP"
                 else:
                     self.is_over = False
@@ -540,10 +544,85 @@ class Button:
             surface.blit(surf, (0, 0))
         if self.state == "DOWN":
             surf = pygame.Surface(self.size, pygame.SRCALPHA)
-            surface = pygame.transform.smoothscale(surface, (int(surface.get_width()*92/100), int(surface.get_height()*92/100)))
+            if self.press_button:
+                surface = pygame.transform.smoothscale(surface, (int(surface.get_width()*92/100), int(surface.get_height()*92/100)))
             surf.blit(surface, (int(self.size[0]/2-surface.get_width()/2),int(self.size[1]/2-surface.get_height()/2)))
             surface = surf
         return surface
+    
+    def filter_events(self, events):
+        #Mask preventing from clicking on two objects at the same time
+        for i in range(len(events)):
+            if events[i].type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION):
+                if self.pos[0] <= events[i].pos[0] < self.pos[0] + self.size[0] and self.pos[1] <= events[i].pos[1] < self.pos[1] + self.size[1]:
+                    events[i] = pygame.event.Event(pygame.MOUSEBUTTONUP, button = 1, pos = (-10, -10))
+        return events
+
+class Menu:
+    
+    def __init__(self, window, text, pos, buttons, background_color = (40, 40, 40), text_color = (255, 255, 255)):
+        self.window = window
+        self.text = text
+        self.real_size = pos[2:]
+        self.size = self.real_size[0], self.real_size[1]
+        self.pos = pos
+        self.background_color = background_color
+        self.text_color = text_color
+        self.is_really_over = False
+        self.is_over = False
+
+        self.buttons = []
+        for i in range(len(buttons)):
+            self.buttons.append(Button(self.window, buttons[i][0], (self.pos[0], self.pos[1]+(i+1)*(self.real_size[1]+5)-5, self.real_size[0], self.real_size[1]), buttons[i][1], press_button=False))
+
+        surface = font.render(self.text, True, self.text_color, self.background_color)
+        text_surface = pygame.Surface(surface.get_size())
+        text_surface.blit(surface, (0, 0))
+        coef = max(text_surface.get_width()/self.real_size[0], text_surface.get_height()/self.real_size[1])/(9/10)
+        text_surface = pygame.transform.smoothscale(text_surface, (text_surface.get_width()//coef, text_surface.get_height()//coef))
+        self.text_surface = pygame.Surface(self.real_size)
+        self.text_surface.fill(self.background_color)
+        self.text_surface.blit(text_surface, (int(self.real_size[0]/2-text_surface.get_width()/2),int(self.real_size[1]/2-text_surface.get_height()/2)))
+        
+    def handle_events(self, events):
+        for event in events:
+            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION): #Get mouse pos
+                pointer = event.pos
+                if self.pos[0] <= pointer[0] < self.pos[0] + self.size[0] and self.pos[1] <= pointer[1] < self.pos[1] + self.size[1]:
+                    self.is_over = True
+                    if self.pos[0] <= pointer[0] < self.pos[0] + self.real_size[0] and self.pos[1] <= pointer[1] < self.pos[1] + self.real_size[1]:
+                        self.is_really_over = True
+                    else :
+                        self.is_really_over = False
+                else:
+                    self.is_really_over = False
+                    self.is_over = False
+        
+        if self.is_over:
+            self.size = self.real_size[0], self.real_size[1] + (self.real_size[1] + 4) * len(self.buttons)
+            surface = pygame.Surface(self.size)
+            surface.fill((10, 10, 10))
+            surface.blit(self.text_surface, (0, 0))
+            if self.is_really_over:
+                surf = pygame.Surface(self.text_surface.get_size())
+                surf.fill((255, 255, 255))
+                surf.set_alpha(25)
+                surface.blit(surf, (0, 0))
+
+            for i in range(len(self.buttons)):
+                surface.blit(self.buttons[i].handle_events(events), (0, (self.real_size[1]+4) * (i+1)))
+        else :
+            surface = self.text_surface.copy()
+            self.size = self.real_size
+        return surface
+    
+    def filter_events(self, events):
+        #Mask preventing from clicking on two objects at the same time
+        for i in range(len(events)):
+            if events[i].type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION):
+                if self.pos[0] <= events[i].pos[0] < self.pos[0] + self.size[0] and self.pos[1] <= events[i].pos[1] < self.pos[1] + self.size[1]:
+                    events[i] = pygame.event.Event(pygame.MOUSEBUTTONUP, button = 1, pos = (-10, -10))
+        return events
 
 class MainWindow:
 
@@ -566,6 +645,9 @@ class MainWindow:
         pygame.display.set_icon(pygame.image.load("asset/pieces/cburnett/bN.png"))
         self.window_surface = pygame.display.set_mode((self.board.board_size+8, self.board.board_size+self.board.board_size//16+4))
         
+        global font
+        font = pygame.font.Font("asset/arialbd.ttf", 300)
+        
         def open_settings(window):
             settings.settings_window(window)
 
@@ -577,6 +659,8 @@ class MainWindow:
             window.board = DisplayBoard(**window.board_settings)
 
         self.components.append(Button(self, "Restart", (self.board.pos[0], 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8),restart))
+        
+        self.components.append(Button(self, "", (self.board.pos[0]+self.board.board_size//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), lambda x: x))
 
         def import_pgn(window):
             diag = filedialog.askopenfile("r", defaultextension="*.pgn")
@@ -593,22 +677,20 @@ class MainWindow:
             window.board.delete()
             window.board = DisplayBoard(**window.board_settings)
             window.board.import_pgn(pgn)
-
-        self.components.append(Button(self, "Import", (self.board.pos[0]+self.board.board_size//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), import_pgn))
-
+        
         def export(window):
             window.board.export_pgn()
-
-        self.components.append(Button(self, "Export", (self.board.pos[0]+self.board.board_size*2//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), export))
+        
+        def get_fen(window):
+            pyperclip.copy(window.board.board.to_complete_fen())
+        
+        self.components.append(Menu(self, "Files", (self.board.pos[0]+self.board.board_size*2//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), [("Import", import_pgn), ("Export", export), ("Copy", get_fen)]))
         
     def run(self, fps = 60):
 
         self.running = True
         clock = pygame.time.Clock()
         self.skip = False
-
-        def render(element):
-            self.window_surface.blit(element.handle_events(new_events), element.pos)
 
         while self.running :
             pygame.display.flip()
@@ -617,16 +699,26 @@ class MainWindow:
             new_events = pygame.event.get()
             if not new_events:
                 new_events.append(pygame.event.Event(0))
+            
+            #Close the window if the user click the cross
             for event in new_events:
                 if event.type == pygame.QUIT:
                     self.running = False
 
             if not self.running:
                 break
+            
+            rendering_list = []
 
-            render(self.board)
-            for i in self.components:
-                render(i)
+            for component in self.components[::-1]:
+                rendering_list.append((component.handle_events(new_events), component.pos))
+                new_events = component.filter_events(new_events)
+            
+            rendering_list.append((self.board.handle_events(new_events), self.board.pos))
+            new_events = self.board.filter_events(new_events)
+
+            for i in rendering_list[::-1]:
+                self.window_surface.blit(*i)
 
 if __name__ == "__main__":
     MainWindow().run()
