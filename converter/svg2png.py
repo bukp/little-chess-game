@@ -15,4 +15,4 @@ for dir in os.listdir("converter/input"):
 
         print(f"{svg_file} -> {png_file}")
 
-        cairosvg.svg2png(url=svg_file, write_to=png_file, output_width=3200, output_height=3200)
+        cairosvg.svg2png(url=svg_file, write_to=png_file, output_width=320, output_height=320)

@@ -381,9 +381,9 @@ class Board:
         if len(self.get_all_possible_moves()) == 0:
             if self.is_in_check(self.turn) :
                 if self.turn == 0:
-                    return ("Black won by Mat", "0 - 1")
+                    return ("Black won by Checkmate", "0 - 1")
                 else :
-                    return ("White won by Mat", "1 - 0")
+                    return ("White won by Checkmate", "1 - 0")
             else :
                 return ("Stalemate", "½ - ½")
 

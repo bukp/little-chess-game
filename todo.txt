@@ -1,4 +1,1 @@
-ajouter un timer
-séparer le fond et la forme dans les settings
-
-(améliorer l'ia, lui ajouter une notion du temps)
+ajouter les réactions

@@ -16,7 +16,9 @@ It contain:
 
 To start a game :
  - execute chess.exe (or game.py)
- - In the settings window, press create to play the whites against the computer
+ - In the settings window, press "create board" to play the whites against the computer
+ - To play a game on LAN, press "create LAN game" instead of "create board" and join the party with another computer on the same LAN
+ - Or enter IP addresses manually
 
 I personnaly wrote the whole code of this project.
 Sprites are taken from the open source chess site lichess.org.
