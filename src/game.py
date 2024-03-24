@@ -39,6 +39,77 @@ DEFAULT_SETTINGS = {
       "54321"
     ],
     "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+  },
+  "presets" : {
+      "Player vs Bot" : {
+          "LAN" : False,
+          "game settings" : {
+              "settings": [
+                  "player",
+                  "bot"
+                ],
+              "clock": "False",
+              "times": [
+                  "10m",
+                  "10m"
+                ],
+              "address": [
+                  "",
+                  ""
+                ],
+              "port": [
+                  "54321",
+                  "54321"
+                ],
+              "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          }
+      },
+      "LAN | 15" : {
+          "LAN" : True,
+          "game settings" : {
+              "settings": [
+                  "player",
+                  "remote player"
+                ],
+              "clock": "True",
+              "times": [
+                  "15m",
+                  "15m"
+                ],
+              "address": [
+                  "",
+                  ""
+                ],
+              "port": [
+                  "54321",
+                  "54321"
+                ],
+              "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          }
+      },
+      "LAN | ∞" : {
+          "LAN" : True,
+          "game settings" : {
+              "settings": [
+                  "player",
+                  "remote player"
+                ],
+              "clock": "False",
+              "times": [
+                  "10m",
+                  "10m"
+                ],
+              "address": [
+                  "",
+                  ""
+                ],
+              "port": [
+                  "54321",
+                  "54321"
+                ],
+              "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          }
+      },
   }
 }
 
@@ -849,7 +920,7 @@ class MainWindow:
         self.board_settings["parent"] = self
         self.board_settings["pos"] = (4, (self.board_settings["bsz"]//16))
 
-        self.update_component("Board", DisplayBoard(**self.board_settings))
+        self.create_game()
         
         #Initialize pygame
         pygame.init()
@@ -864,6 +935,7 @@ class MainWindow:
         
         self.lan_game_list = []
         threading.Thread(target=self.listen_group_games, name="Listening group_conn for updates", daemon=True).start()
+        self.offer_cool_down = False
 
     def refresh_ui(self):
 
@@ -874,32 +946,31 @@ class MainWindow:
         self.window_surface = pygame.display.set_mode(((self.board.board_size)+8, (self.board.board_size*18//16 if self.board_settings["clock"] == "True" else self.board.board_size*17//16+5)))
 
         def game_settings(window : MainWindow):
-            last_clock = window.board_settings["clock"]
             new_settings = settings.game_settings_window()
             if new_settings == None:
                 return
-            #Fermeture des sockets pour éviter des bugs comme la connection avec une socket inutilisée
-            self.board.end_all_connections("ended;disconnected", False)
-            lan = new_settings[1]
-            new_settings = new_settings[0]
-            for i in new_settings:
-                window.board_settings[i] = new_settings[i]
-
-            if lan:
-                window.board_settings["address"] = ["", ""]
-                threading.Thread(target=window.offer_group_game, args=[new_settings], name="Offering group game on LAN", daemon=True).start()
-
-            self.update_component("Board", DisplayBoard(**window.board_settings))
-            if window.board_settings["clock"] != last_clock:
-                window.refresh_ui()
+            
+            window.create_game(new_settings[0], new_settings[1])
         
         def restart(window : MainWindow):
             #Fermeture des sockets pour éviter des bugs comme la connection avec une socket inutilisée
-            self.board.end_all_connections("ended;disconnected", False)
-            self.update_component("Board", DisplayBoard(**window.board_settings))
-            self.game_id = None
+            window.board_settings["settings"] = [window.board_settings["settings"][1], window.board_settings["settings"][0]]
+            window.create_game()
         
-        self.add_component("Menu1", Menu(self, "New Games", (self.board.pos[0], 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8),[("Restart", restart), ("Custom game", game_settings)]))
+        def abort_lan(window : MainWindow):
+            window.game_id = None
+        
+        self.add_component("Menu1", Menu(self, "New Games", (self.board.pos[0], 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8),[("Custom game", game_settings), ("Restart", restart), ("Abort LAN", abort_lan)]))
+        
+        presets = settings.user_settings("presets")
+        for preset in presets:
+            def create_preset_game(window : MainWindow, new_settings=presets[preset]["game settings"], lan=presets[preset]["LAN"]):
+                if window.board_settings["settings"] == new_settings["settings"]:
+                    new_settings["settings"] = [new_settings["settings"][1], new_settings["settings"][0]]
+                else :
+                    random.shuffle(new_settings["settings"])
+                window.create_game(new_settings, lan)
+            self.components["Menu1"].add_button((preset, create_preset_game))
         
         self.add_component("Menu2", Menu(self, "Join Game", (self.board.pos[0]+self.board.board_size//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), []))
 
@@ -915,8 +986,7 @@ class MainWindow:
             
             pgn = pgn.replace("\n", " ")
             
-            window.board.delete()
-            self.update_component("Board", DisplayBoard(**window.board_settings))
+            self.create_game()
             window.board.import_pgn(pgn)
         
         def export(window : MainWindow):
@@ -1003,6 +1073,26 @@ class MainWindow:
         if name == "Board":
             self.board = self.components["Board"]
 
+    def create_game(self, new_settings = (), lan = False):
+
+        last_clock = self.board_settings["clock"]
+        #Fermeture des sockets pour éviter des bugs comme la connection avec une socket inutilisée
+        if "Board" in self.components:
+            self.board.end_all_connections("ended;disconnected", False)
+
+        for i in new_settings:
+            self.board_settings[i] = new_settings[i]
+
+        if lan:
+            self.board_settings["address"] = ["", ""]
+            threading.Thread(target=self.offer_group_game, args=[new_settings], name="Offering group game on LAN", daemon=True).start()
+        else :
+            self.game_id = None
+
+        self.update_component("Board", DisplayBoard(**self.board_settings))
+        if self.board_settings["clock"] != last_clock:
+            self.refresh_ui()
+
     def listen_group_games(self):
         self.group_conn = connection.GroupConnection(MCAST_GROUP, DEBUG)
         self.group_offers = {}
@@ -1020,10 +1110,11 @@ class MainWindow:
                     }
                     self.group_offers[id]["game settings"]["address"] = [self.group_conn.last_message[1][0]] * 2
                     if self.components["Menu2"].get_button_with_flag(id) == None:
-                        self.components["Menu2"].add_button((self.group_offers[id]["address"], lambda x, id=id: x.accept_group_game(id), id))
+                        self.components["Menu2"].add_button((self.group_offers[id]["address"] if not DEBUG else str(id), lambda x, id=id: x.accept_group_game(id), id))
                     self.group_conn.last_message = None
                 elif message[1] == "accept":
                     if self.game_id == id:
+                        self.old_game_id.add(id)
                         self.game_id = None
                         self.board_settings["address"] = [self.group_conn.last_message[1][0]] * 2
                         self.board.address = [self.group_conn.last_message[1][0]] * 2
@@ -1032,6 +1123,8 @@ class MainWindow:
                     elif id in self.group_offers:
                         del self.group_offers[id]
                         self.components["Menu2"].remove_button_with_flag(id)
+                self.group_conn.last_message = None
+
             for id in self.group_offers.copy():
                 if self.group_offers[id]["last update"] < time.time() - 5:
                     del self.group_offers[id]
@@ -1041,10 +1134,13 @@ class MainWindow:
         self.group_conn.close()
     
     def accept_group_game(self, id):
+        self.old_game_id.add(id)
+
         last_clock = self.board_settings["clock"]
         for i in self.group_offers[id]["game settings"]:
             self.board_settings[i] = self.group_offers[id]["game settings"][i]
-        self.update_component("Board", DisplayBoard(**self.board_settings))
+        
+        self.create_game()
 
         if self.board_settings["clock"] != last_clock:
             self.refresh_ui()
@@ -1059,6 +1155,18 @@ class MainWindow:
         threading.Thread(target=accept, name="Accepting group game", daemon=True).start()
 
     def offer_group_game(self, settings):
+        if self.offer_cool_down:
+            return
+        
+        self.offer_cool_down = True
+
+        if self.game_id != None:
+            id = self.game_id
+            self.game_id = None
+            for _ in range(5):
+                self.group_conn.group_send(f"{id};accept")
+                time.sleep(0.2)
+
         id = random.randint(10000000, 99999999)
         self.game_id = id
         self.old_game_id.add(id)
@@ -1084,7 +1192,9 @@ class MainWindow:
             message += f"{i}={settings[i]};".replace("(", "").replace(")", "").replace("[", "").replace("]", "").replace("'", "").replace(", ", ",")
         message = message[:-1]
         if DEBUG:
-            print(message)
+            print("[GAME OFFER] :", message)
+        
+        self.offer_cool_down = False
         while self.game_id == id:
             self.group_conn.group_send(message)
             time.sleep(0.6)
