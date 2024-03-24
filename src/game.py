@@ -6,6 +6,7 @@ import settings
 import chess
 import connection
 import pyperclip
+import os
 from tkinter import filedialog
 
 DEBUG = False
@@ -35,7 +36,7 @@ DEFAULT_SETTINGS = {
     ],
     "port": [
       "54321",
-      "55555"
+      "54321"
     ],
     "board": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
   }
@@ -43,9 +44,9 @@ DEFAULT_SETTINGS = {
 
 class DisplayBoard:
 
-    def __init__(self,parent, settings = ("player", "bot"), address = ("127.0.0.1", "127.0.0.1"), port = ("54321", "54321"), bsd = "auto", bsz = 480, board = "start", clock = False, times = (900, 900), pieces_style = "cburnett", board_style = "brown", pos = (0, 0)):
+    def __init__(self, parent, settings = ("player", "bot"), address = ("127.0.0.1", "127.0.0.1"), port = ("54321", "54321"), bsd = "auto", bsz = 480, board = "start", clock = False, times = (900, 900), pieces_style = "cburnett", board_style = "brown", pos = (0, 0)):
         
-        self.parent = parent
+        self.window = parent
         self.settings = settings
         self.pos = pos
         self.clock_enabled = clock == "True"
@@ -76,6 +77,7 @@ class DisplayBoard:
         self.board = chess.Board(board)
         self.move_to_play = None
         self.board_state = None
+        self.last_state = None
         self.page = "current"
         self.sub_state = None
         self.temp_var = {}
@@ -88,10 +90,11 @@ class DisplayBoard:
         if self.settings[i] == "remote player" and self.address[i] != "":
             self.connections[i] = connection.Connection(i == 0, self.address[i], int(self.port[i]), DEBUG)
 
-    def update_graphics(self, bsd = "white", bsz = 480, pieces_style = "cburnett", board_style = "brown"):
+    def update_graphics(self, bsd = "auto", bsz = 480, pieces_style = "cburnett", board_style = "brown"):
         
+        order = ("player", "bot", "random", "remote player")
         if bsd == "auto":
-            if self.settings[1] == "player" and self.settings[0] != "player":
+            if order.index(self.settings[1]) < order.index(self.settings[0]):
                 bsd = "black"
             else :
                 bsd = "white"
@@ -278,7 +281,7 @@ class DisplayBoard:
                     if self.board.last_move == None:
                         message = "0;;"
                     else:
-                        message = f"{len(self.board.fen_list)};{str(self.board.last_move[0][0])+str(self.board.last_move[0][1])+str(self.board.last_move[1][0])+str(self.board.last_move[1][1])+(str(self.board.last_move[2]) if len(self.board.last_move)>2 else '')};{self.board.to_complete_fen()};{self.times[(self.board.turn+1)%2]+1}"
+                        message = f"{len(self.board.fen_list)};{str(self.board.last_move[0][0])+str(self.board.last_move[0][1])+str(self.board.last_move[1][0])+str(self.board.last_move[1][1])+(str(self.board.last_move[2]) if len(self.board.last_move)>2 else '')};{self.board.to_complete_fen()};{self.times[(self.board.turn+1)%2]}"
 
                     last_time = 0
                     while True:
@@ -362,6 +365,10 @@ class DisplayBoard:
                     
                     self.connections[i].close()
 
+                if last_message[0] == "reaction":
+                    self.window.components["ReactionPopup"].popup(last_message[1], 10)
+                    self.connections[i].last_message = ""
+
     def handle_random(self, event):
         if self.board_state == "Running":
             self.move_to_play = random.choice(self.board.get_all_possible_moves()) #Play the move
@@ -369,10 +376,9 @@ class DisplayBoard:
     def handle_events(self, events):
         """Main handler that call all the others, get an event list and return a surface to display on the window"""
 
-        last_state = self.board_state
-
         if self.board_state == None:
             self.board_state = self.board.get_state()
+            self.last_state = self.board_state            
         
         for i in range(len(self.connections)):
             if self.settings[i] == "remote player" and (self.connections[i] == None or not self.connections[i].connected):
@@ -439,7 +445,7 @@ class DisplayBoard:
                 self.thread = None
                 self.page = "current"
 
-        if self.board_state != "Running" and self.board_state != last_state:
+        if self.board_state != "Running" and self.board_state != self.last_state:
             self.page = "popup"
         
         surface = self.draw_board(self.mouse)
@@ -450,6 +456,7 @@ class DisplayBoard:
         if self.sub_state == "promotion":
             surface = self.promotion_choice(surface, self.mouse)
         
+        self.last_state = self.board_state
         return surface
 
     def filter_events(self, events):
@@ -471,6 +478,11 @@ class DisplayBoard:
             return
         with open(diag.name, "w", encoding="utf-8") as file:
             file.write(self.board.to_pgn())
+
+    def send_to_all_connections(self, message):
+        for i in self.connections:
+            if i != None and i.connected:
+                i.send(message)
 
     def end_all_connections(self, message = "ended;disconnected", wait = True):
         for i in self.connections:
@@ -720,11 +732,114 @@ class Clock:
                     events[i] = pygame.event.Event(pygame.MOUSEBUTTONUP, button = 1, pos = (-10, -10))
         return events
 
+class ChoicePopup:
+
+    def __init__(self, window, images, action, pos, display = (4, 2), background_color = (255, 255, 255), select_color = (200, 200, 200)):
+        self.parent = window
+        self.size = pos[2:]
+        self.pos = pos[:2]
+        self.display = display
+        self.background_color = background_color
+        self.select_color = select_color
+        self.cell_size = (self.size[0]-20)//self.display[0]-8, (self.size[1]-20)//self.display[1]-8
+        self.action = action
+        self.enabled = False
+        self.mouse = (0, 0)
+
+        self.images = images
+        self.sprites = []
+        for i in range(len(images)):
+            self.sprites.append(pygame.image.load(images[i]))
+            self.sprites[i] = pygame.transform.smoothscale(self.sprites[i], (min(self.cell_size), min(self.cell_size)))
+
+    def handle_events(self, events):
+        if not self.enabled:
+            return pygame.Surface((0, 0))
+                
+        click = False
+        for event in events:
+            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION):
+                self.mouse = event.pos
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                click = True
+            
+        surface = pygame.Surface(self.size, pygame.SRCALPHA)
+        pygame.draw.rect(surface, self.background_color, (0, 0, self.size[0], self.size[1]), border_radius=20)
+        self.selected = None
+        for i in range(len(self.sprites)):
+            img = self.sprites[i]
+            pos = (14+(self.cell_size[0]+8)*(i%self.display[0]), 14+(self.cell_size[1]+8)*(i//self.display[0]))
+            if pos[0] <= self.mouse[0] - self.pos[0] <= pos[0]+self.cell_size[0] and pos[1] <= self.mouse[1] - self.pos[1] <= pos[1]+self.cell_size[1]:
+                if click:
+                    self.action(self.parent, self.images[i])
+                surf = pygame.Surface(self.cell_size)
+                surf.fill(self.select_color)
+                surface.blit(surf, pos)
+                img = pygame.Surface((min(self.cell_size), min(self.cell_size)), pygame.SRCALPHA)
+                img.blit(pygame.transform.smoothscale(self.sprites[i], (min(self.cell_size)*8//10, min(self.cell_size)*8//10)), (min(self.cell_size)//10, min(self.cell_size)//10))
+            surface.blit(img, (pos[0]+self.cell_size[0]//2-img.get_size()[0]//2, pos[1]+self.cell_size[1]//2-img.get_size()[1]//2))
+        return surface
+    
+    def filter_events(self, events):
+        #Mask preventing from clicking on two objects at the same time
+        if not self.enabled:
+            return events
+        for i in range(len(events)):
+            if events[i].type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION):
+                if events[i].type == pygame.MOUSEBUTTONDOWN and events[i].button in (1, 3):
+                    self.enabled = False
+                if self.pos[0] <= events[i].pos[0] < self.pos[0] + self.size[0] and self.pos[1] <= events[i].pos[1] < self.pos[1] + self.size[1]:
+                    events[i] = pygame.event.Event(pygame.MOUSEBUTTONUP, button = 1, pos = (-10, -10))
+        return events
+
+class Popup:
+
+    def __init__(self, window, pos):
+        self.window = window
+        self.size = pos[2:]
+        self.pos = pos[:2]
+        self.image = None
+        self.enabled = False
+        self.del_time = 0
+
+    def popup(self, image, duration_time = 15):
+        self.image = pygame.image.load(image)
+        self.image = pygame.transform.smoothscale(self.image, (min(self.size)-8, min(self.size)-8))
+        self.enabled = True
+        self.del_time = time.time() + duration_time
+
+    def handle_events(self, events):
+        if not self.enabled:
+            return pygame.Surface((0, 0))
+        
+        if time.time() > self.del_time:
+            self.enabled = False
+
+        surface = pygame.Surface(self.size, pygame.SRCALPHA)
+        surface.blit(self.image, (4, 4))
+        
+        return surface
+    
+    def filter_events(self, events):
+        #Mask preventing from clicking on two objects at the same time
+        if not self.enabled:
+            return events
+        for i in range(len(events)):
+            if events[i].type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION):
+                if self.pos[0] <= events[i].pos[0] < self.pos[0] + self.size[0] and self.pos[1] <= events[i].pos[1] < self.pos[1] + self.size[1]:
+                    if events[i].type == pygame.MOUSEBUTTONDOWN and events[i].button in (1, 3):
+                        self.enabled = False
+                    events[i] = pygame.event.Event(pygame.MOUSEBUTTONUP, button = 1, pos = (-10, -10))
+
+        return events
+
 class MainWindow:
 
     def __init__(self, board_settings = None):
 
         self.running = True
+        self.components = {}
+        self.components_order = []
 
         if board_settings == None:
             self.board_settings = settings.user_settings("graphics") | DEFAULT_SETTINGS["game"]
@@ -734,7 +849,7 @@ class MainWindow:
         self.board_settings["parent"] = self
         self.board_settings["pos"] = (4, (self.board_settings["bsz"]//16))
 
-        self.board = DisplayBoard(**self.board_settings)
+        self.update_component("Board", DisplayBoard(**self.board_settings))
         
         #Initialize pygame
         pygame.init()
@@ -755,15 +870,8 @@ class MainWindow:
         self.board_settings["pos"] = (4, (self.board_settings["bsz"]//16))
         self.board.pos = self.board_settings["pos"]
 
-        self.components = []
-
         #Initialise the window
         self.window_surface = pygame.display.set_mode(((self.board.board_size)+8, (self.board.board_size*18//16 if self.board_settings["clock"] == "True" else self.board.board_size*17//16+5)))
-        def restart(window : MainWindow):
-            #Fermeture des sockets pour éviter des bugs comme la connection avec une socket inutilisée
-            self.board.end_all_connections("ended;disconnected", False)
-            window.board = DisplayBoard(**window.board_settings)
-            self.game_id = None
 
         def game_settings(window : MainWindow):
             last_clock = window.board_settings["clock"]
@@ -781,13 +889,19 @@ class MainWindow:
                 window.board_settings["address"] = ["", ""]
                 threading.Thread(target=window.offer_group_game, args=[new_settings], name="Offering group game on LAN", daemon=True).start()
 
-            window.board = DisplayBoard(**window.board_settings)
+            self.update_component("Board", DisplayBoard(**window.board_settings))
             if window.board_settings["clock"] != last_clock:
                 window.refresh_ui()
         
-        self.components.append(Menu(self, "New Game", (self.board.pos[0], 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8),[("Restart", restart), ("Custom Game", game_settings)]))
+        def restart(window : MainWindow):
+            #Fermeture des sockets pour éviter des bugs comme la connection avec une socket inutilisée
+            self.board.end_all_connections("ended;disconnected", False)
+            self.update_component("Board", DisplayBoard(**window.board_settings))
+            self.game_id = None
         
-        self.components.append(Menu(self, "Join Game", (self.board.pos[0]+self.board.board_size//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), []))
+        self.add_component("Menu1", Menu(self, "New Games", (self.board.pos[0], 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8),[("Restart", restart), ("Custom game", game_settings)]))
+        
+        self.add_component("Menu2", Menu(self, "Join Game", (self.board.pos[0]+self.board.board_size//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), []))
 
         def import_pgn(window : MainWindow):
             diag = filedialog.askopenfile("r", defaultextension="*.pgn")
@@ -802,7 +916,7 @@ class MainWindow:
             pgn = pgn.replace("\n", " ")
             
             window.board.delete()
-            window.board = DisplayBoard(**window.board_settings)
+            self.update_component("Board", DisplayBoard(**window.board_settings))
             window.board.import_pgn(pgn)
         
         def export(window : MainWindow):
@@ -811,7 +925,19 @@ class MainWindow:
         def get_fen(window : MainWindow):
             pyperclip.copy(window.board.board.to_complete_fen())
         
-        self.components.append(Menu(self, "Files", (self.board.pos[0]+self.board.board_size*2//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), [("Import", import_pgn), ("Export", export), ("FEN", get_fen)]))
+        def resign(window : MainWindow):
+            if window.board.board_state != "Running":
+                return
+            if window.board.settings.count("remote player") != 1:
+                return
+            
+            window.board.end_all_connections("ended;resignation", True)
+            if window.board.settings.index("remote player") == 0:
+                window.board.board_state = ("White won by resignation", "1 - 0")
+            else :
+                window.board.board_state = ("Black won by resignation", "0 - 1")
+        
+        self.add_component("Menu3", Menu(self, "Options", (self.board.pos[0]+self.board.board_size*2//4+2, 4, (self.board.board_size//4)-4, (self.board.board_size//16)-8), [("Resign", resign), ("Import", import_pgn), ("Export", export), ("FEN", get_fen)]))
         
         def graphics_settings(window : MainWindow):
             last_size = window.board.board_size
@@ -824,19 +950,58 @@ class MainWindow:
             if window.board.board_size != last_size:
                 window.refresh_ui()
 
-        self.components.append(Menu(self, "Settings", (self.board.pos[0]+self.board.board_size*3//4+2, 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8), [("Graphics", graphics_settings)]))
+        self.add_component("Menu4", Menu(self, "Settings", (self.board.pos[0]+self.board.board_size*3//4+2, 4, (self.board.board_size//4)-2, (self.board.board_size//16)-8), [("Graphics", graphics_settings)]))
         
         if self.board_settings["clock"] == "True":
 
-            self.components.append(Clock(self, 0, (4, self.board.board_size*17/16+4, self.board.board_size//8*2, self.board.board_size//16-8)))
+            self.add_component("clock1", Clock(self, 0, (4, self.board.board_size*17/16+4, self.board.board_size//8*2, self.board.board_size//16-8)))
 
-            self.components.append(Clock(self, 1, (self.board.board_size*6//8+4, self.board.board_size*17/16+4, self.board.board_size//8*2, self.board.board_size//16-8)))
+            self.add_component("clock2", Clock(self, 1, (self.board.board_size*6//8+4, self.board.board_size*17/16+4, self.board.board_size//8*2, self.board.board_size//16-8)))
 
-            self.components.append(Label(self, "White", (self.board.board_size*2//8+8, self.board.board_size*17/16+4, self.board.board_size//8*2-12, self.board.board_size//16-8), (10, 10, 10)))
+            self.add_component("WhiteName", Label(self, "White", (self.board.board_size*2//8+8, self.board.board_size*17//16+4, self.board.board_size//8*2-12, self.board.board_size//16-8), (10, 10, 10)))
             
-            self.components.append(Label(self, "Black", (self.board.board_size*4//8+12, self.board.board_size*17/16+4, self.board.board_size//8*2-12, self.board.board_size//16-8), (10, 10, 10)))
+            self.add_component("BlackName", Label(self, "Black", (self.board.board_size*4//8+12, self.board.board_size*17//16+4, self.board.board_size//8*2-12, self.board.board_size//16-8), (10, 10, 10)))
 
-            self.components.append(Label(self, "-", (self.board.board_size*4//8-4, self.board.board_size*17/16+4, 16, self.board.board_size//16-8), (10, 10, 10)))
+            self.add_component("NameSeparator", Label(self, "-", (self.board.board_size*4//8-4, self.board.board_size*17/16+4, 16, self.board.board_size//16-8), (10, 10, 10)))
+        
+        else :
+            self.remove_component("clock1")
+
+            self.remove_component("clock2")
+
+            self.remove_component("WhiteName")
+
+            self.remove_component("BlackName")
+
+            self.remove_component("NameSeparator")
+
+        def send_reaction(window : MainWindow, image : str):
+            window.board.send_to_all_connections(f"reaction;{image}")
+        
+        self.add_component("ReactionChoicePopup", ChoicePopup(self, ["asset/reactions/"+i for i in os.listdir("asset/reactions")], send_reaction, (self.board.board_size*3//16+4, self.board.board_size*13//32, self.board.board_size*5//8, self.board.board_size*5//16), (4, 2)))
+
+        self.add_component("ReactionPopup", Popup(self, (self.board.board_size*25//32+4, self.board.board_size*27//32, self.board.board_size*3//16, self.board.board_size*3//16)))
+
+    def add_component(self, name, component):
+        if name in self.components:
+            self.components_order.remove(name)
+        self.components[name] = component
+        self.components_order.append(name)
+
+    def remove_component(self, name):
+        try :
+            del self.components[name]
+            self.components_order.remove(name)
+        except :
+            pass
+    
+    def update_component(self, name, component):
+        if name in self.components:
+            self.components[name] = component
+        else :
+            self.add_component(name, component)
+        if name == "Board":
+            self.board = self.components["Board"]
 
     def listen_group_games(self):
         self.group_conn = connection.GroupConnection(MCAST_GROUP, DEBUG)
@@ -854,8 +1019,8 @@ class MainWindow:
                         "last update" : time.time(),
                     }
                     self.group_offers[id]["game settings"]["address"] = [self.group_conn.last_message[1][0]] * 2
-                    if self.components[1].get_button_with_flag(id) == None:
-                        self.components[1].add_button((self.group_offers[id]["address"], lambda x, id=id: x.accept_group_game(id), id))
+                    if self.components["Menu2"].get_button_with_flag(id) == None:
+                        self.components["Menu2"].add_button((self.group_offers[id]["address"], lambda x, id=id: x.accept_group_game(id), id))
                     self.group_conn.last_message = None
                 elif message[1] == "accept":
                     if self.game_id == id:
@@ -866,11 +1031,11 @@ class MainWindow:
                         self.board.connect(1)
                     elif id in self.group_offers:
                         del self.group_offers[id]
-                        self.components[1].remove_button_with_flag(id)
+                        self.components["Menu2"].remove_button_with_flag(id)
             for id in self.group_offers.copy():
                 if self.group_offers[id]["last update"] < time.time() - 5:
                     del self.group_offers[id]
-                    self.components[1].remove_button_with_flag(id)
+                    self.components["Menu2"].remove_button_with_flag(id)
             time.sleep(0.1)
 
         self.group_conn.close()
@@ -879,13 +1044,13 @@ class MainWindow:
         last_clock = self.board_settings["clock"]
         for i in self.group_offers[id]["game settings"]:
             self.board_settings[i] = self.group_offers[id]["game settings"][i]
-        self.board = DisplayBoard(**self.board_settings)
+        self.update_component("Board", DisplayBoard(**self.board_settings))
 
         if self.board_settings["clock"] != last_clock:
             self.refresh_ui()
         
         del self.group_offers[id]
-        self.components[1].remove_button_with_flag(id)
+        self.components["Menu2"].remove_button_with_flag(id)
 
         def accept(id = id):
             while not self.board.connections[self.board_settings["settings"].index("remote player")].connected:
@@ -950,18 +1115,20 @@ class MainWindow:
                     print("\nGame offers : ")
                     for i in self.group_offers:
                         print(" -", i, self.group_offers[i])
-                    print("\n")
+                    print("\nBoard State :", self.board.board_state)
+                    print()
+
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
+                    self.components["ReactionChoicePopup"].enabled = not self.components["ReactionChoicePopup"].enabled
 
             if not self.running:
                 break
             
             rendering_list = []
 
-            for component in self.components[::-1]:
-                rendering_list.append((component.handle_events(new_events), component.pos))
-                new_events = component.filter_events(new_events)
-            
-            rendering_list.append((self.board.handle_events(new_events), self.board.pos))
+            for i in self.components_order[::-1]:
+                rendering_list.append((self.components[i].handle_events(new_events), self.components[i].pos))
+                new_events = self.components[i].filter_events(new_events)
 
             for i in rendering_list[::-1]:
                 self.window_surface.blit(*i)
